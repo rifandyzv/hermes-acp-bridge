@@ -1,0 +1,357 @@
+:root {
+  color-scheme: dark;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(230, 198, 120, 0.16), transparent 32%),
+    radial-gradient(circle at right, rgba(63, 110, 149, 0.18), transparent 28%),
+    #11151a;
+  color: #eef3f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: transparent;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 17, 22, 0.84);
+  backdrop-filter: blur(18px);
+  padding: 24px 20px;
+}
+
+.sidebar__header,
+.workspace__header,
+.activity__header,
+.palette__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sidebar__list,
+.activity__list {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 20px;
+}
+
+.workspace__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  min-height: 0;
+  flex: 1;
+}
+
+.chat-pane,
+.activity,
+.palette,
+.approval-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 25, 32, 0.78);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.chat-pane {
+  border-radius: 26px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+
+.activity {
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.transcript {
+  overflow: auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.message {
+  border-radius: 22px;
+  padding: 16px 18px;
+  max-width: 88%;
+  animation: rise-in 180ms ease;
+}
+
+.message--user {
+  margin-left: auto;
+  background: linear-gradient(135deg, rgba(40, 114, 179, 0.58), rgba(29, 64, 95, 0.72));
+}
+
+.message--assistant {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.message--streaming {
+  border: 1px dashed rgba(230, 198, 120, 0.42);
+}
+
+.message__header,
+.activity__type,
+.session-card__meta,
+.composer__hint,
+.palette__description,
+.status-pill,
+.eyebrow {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  letter-spacing: 0.04em;
+}
+
+.message__header {
+  opacity: 0.72;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.message__body,
+.approval-card__body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  line-height: 1.55;
+}
+
+.composer {
+  padding: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(11, 15, 20, 0.72);
+}
+
+.composer__input {
+  width: 100%;
+  resize: vertical;
+  min-height: 110px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+}
+
+.composer__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.primary-button,
+.ghost-button,
+.session-card,
+.palette__item {
+  border: none;
+  cursor: pointer;
+}
+
+.primary-button,
+.ghost-button {
+  border-radius: 999px;
+  padding: 10px 16px;
+  transition: transform 150ms ease, background 150ms ease;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, #d9b661, #ba8d2f);
+  color: #11151a;
+  font-weight: 700;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+}
+
+.session-card,
+.palette__item {
+  width: 100%;
+  text-align: left;
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.session-card {
+  border: 1px solid transparent;
+}
+
+.session-card--selected,
+.session-card:hover,
+.palette__item:hover,
+.ghost-button:hover,
+.primary-button:hover {
+  transform: translateY(-1px);
+}
+
+.session-card--selected {
+  border-color: rgba(217, 182, 97, 0.38);
+  background: rgba(217, 182, 97, 0.08);
+}
+
+.session-card__title,
+.palette__label {
+  font-weight: 700;
+}
+
+.session-card__preview {
+  margin-top: 8px;
+  color: rgba(238, 243, 248, 0.7);
+  line-height: 1.4;
+}
+
+.session-card__meta {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: rgba(238, 243, 248, 0.58);
+}
+
+.status-pill {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.72rem;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  opacity: 0.65;
+  margin: 0 0 6px;
+}
+
+.activity__item {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.activity__item:last-child {
+  border-bottom: none;
+}
+
+.activity__type {
+  font-size: 0.7rem;
+  color: #d9b661;
+}
+
+.activity__text {
+  margin-top: 4px;
+  line-height: 1.45;
+  color: rgba(238, 243, 248, 0.82);
+}
+
+.palette-overlay,
+.approval-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 11, 15, 0.62);
+  backdrop-filter: blur(12px);
+}
+
+.palette {
+  width: min(720px, calc(100vw - 32px));
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.palette__list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.palette__item {
+  display: grid;
+  gap: 6px;
+}
+
+.approval-card {
+  width: min(720px, calc(100vw - 32px));
+  border-radius: 24px;
+  padding: 24px;
+}
+
+.approval-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.workspace__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.error-banner {
+  background: rgba(158, 47, 47, 0.24);
+  color: #ffd5d5;
+  border: 1px solid rgba(255, 104, 104, 0.36);
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .workspace__body {
+    grid-template-columns: 1fr;
+  }
+}
