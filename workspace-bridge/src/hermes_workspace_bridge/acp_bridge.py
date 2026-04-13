@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import BridgeConfig
-from .events import normalize_prompt_response, normalize_session_update, status_event, to_jsonable
+from .events import (
+    normalize_prompt_response,
+    normalize_session_update,
+    status_event,
+    to_jsonable,
+)
 from .session_store import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -99,9 +104,9 @@ class ACPBridgeService:
         self._process_cm = spawn_agent_process(self._client, *command)
         self._connection, _proc = await self._process_cm.__aenter__()
         initialize_response = await self._connection.initialize(protocol_version=1)
-        auth_methods = to_jsonable(initialize_response).get("authMethods") or to_jsonable(
-            initialize_response
-        ).get("auth_methods")
+        auth_methods = to_jsonable(initialize_response).get(
+            "authMethods"
+        ) or to_jsonable(initialize_response).get("auth_methods")
         if auth_methods:
             first_method = auth_methods[0]
             method_id = first_method.get("id")
@@ -116,7 +121,9 @@ class ACPBridgeService:
         self._connection = None
         self._process_cm = None
         self._state = "stopped"
-        await self.event_bus.publish(status_event("stopped", "Hermes ACP process stopped"))
+        await self.event_bus.publish(
+            status_event("stopped", "Hermes ACP process stopped")
+        )
 
     async def health(self) -> dict[str, Any]:
         return {
@@ -155,7 +162,9 @@ class ACPBridgeService:
             "last_active": None,
         }
 
-    async def list_sessions(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    async def list_sessions(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         return self.session_store.list_sessions(limit=limit, offset=offset)
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
@@ -180,7 +189,9 @@ class ACPBridgeService:
             await self._ensure_session_loaded(session_id)
             run_id = f"run_{uuid.uuid4().hex}"
             task = asyncio.create_task(self._run_prompt(run_id, session_id, text))
-            active_run = ActiveRun(run_id=run_id, session_id=session_id, prompt=text, task=task)
+            active_run = ActiveRun(
+                run_id=run_id, session_id=session_id, prompt=text, task=task
+            )
             self._active_runs_by_session[session_id] = active_run
             self._active_runs_by_id[run_id] = active_run
 
@@ -200,7 +211,9 @@ class ACPBridgeService:
             return
         await self._call_connection(("cancel",), session_id=session_id)
 
-    async def fork_session(self, session_id: str, cwd: str | None = None) -> dict[str, Any]:
+    async def fork_session(
+        self, session_id: str, cwd: str | None = None
+    ) -> dict[str, Any]:
         await self._ensure_session_loaded(session_id)
         response = await self._call_connection(
             ("fork_session", "unstable_fork_session"),
@@ -231,10 +244,26 @@ class ACPBridgeService:
         return session or {"session_id": session_id, "model": model_id}
 
     async def handle_session_update(self, session_id: str, update: Any) -> None:
-        active_run = self._active_runs_by_session.get(session_id)
-        run_id = active_run.run_id if active_run else None
-        event = normalize_session_update(update, session_id=session_id, run_id=run_id)
-        await self.event_bus.publish(event)
+        try:
+            active_run = self._active_runs_by_session.get(session_id)
+            run_id = active_run.run_id if active_run else None
+            logger.debug(
+                "Session update for %s (run=%s): %s",
+                session_id,
+                run_id,
+                type(update).__name__,
+            )
+            event = normalize_session_update(
+                update, session_id=session_id, run_id=run_id
+            )
+            logger.debug(
+                "Normalized event: type=%s text_len=%d",
+                event.get("type"),
+                len(event.get("text", "")),
+            )
+            await self.event_bus.publish(event)
+        except Exception:
+            logger.exception("Failed to handle session update for %s", session_id)
 
     async def handle_permission_request(
         self,
@@ -289,7 +318,9 @@ class ACPBridgeService:
                 prompt=[text_block(text)],
             )
             await self.event_bus.publish(
-                normalize_prompt_response(response, session_id=session_id, run_id=run_id)
+                normalize_prompt_response(
+                    response, session_id=session_id, run_id=run_id
+                )
             )
         except Exception as exc:
             logger.exception("ACP prompt failed for session %s", session_id)
@@ -332,7 +363,9 @@ class ACPBridgeService:
             }
         )
 
-    async def _call_connection(self, method_names: tuple[str, ...], **kwargs: Any) -> Any:
+    async def _call_connection(
+        self, method_names: tuple[str, ...], **kwargs: Any
+    ) -> Any:
         if self._connection is None:
             raise RuntimeError("Hermes ACP connection is not ready")
 
@@ -340,7 +373,9 @@ class ACPBridgeService:
             method = getattr(self._connection, name, None)
             if callable(method):
                 return await method(**kwargs)
-        raise RuntimeError(f"ACP connection does not support any of: {', '.join(method_names)}")
+        raise RuntimeError(
+            f"ACP connection does not support any of: {', '.join(method_names)}"
+        )
 
     def _extract_session_id(self, response: Any) -> str:
         payload = to_jsonable(response)

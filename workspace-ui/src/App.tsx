@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { ActivityRail } from "./components/ActivityRail";
 import { ChatTranscript } from "./components/ChatTranscript";
 import { CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
@@ -18,19 +17,21 @@ import {
   resolveApproval,
   switchModel,
 } from "./lib/api";
-import type { ApprovalState, BridgeEvent, SessionDetail, SessionSummary } from "./types";
+import type { ApprovalState, BridgeEvent, SessionDetail, SessionSummary, ToolEvent } from "./types";
 
 function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
-  const [activity, setActivity] = useState<BridgeEvent[]>([]);
   const [pendingAssistant, setPendingAssistant] = useState("");
+  const [pendingThinking, setPendingThinking] = useState("");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [connectionLabel, setConnectionLabel] = useState("Connecting to bridge...");
+  const [connected, setConnected] = useState(false);
+  const [connectionLabel, setConnectionLabel] = useState("Connecting...");
   const [errorLabel, setErrorLabel] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [approval, setApproval] = useState<ApprovalState | null>(null);
+  const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
 
   async function refreshSessions(preserveSelection = true) {
     const nextSessions = await fetchSessions();
@@ -44,13 +45,11 @@ function App() {
     const session = await fetchSession(sessionId);
     setSelectedSession(session);
     setSelectedSessionId(session.session_id);
-    setPendingAssistant("");
+    setToolEvents([]);
   }
 
   async function ensureSession(): Promise<string> {
-    if (selectedSessionId) {
-      return selectedSessionId;
-    }
+    if (selectedSessionId) return selectedSessionId;
     const session = await createSession();
     await refreshSessions(false);
     await loadSession(session.session_id);
@@ -58,12 +57,15 @@ function App() {
   }
 
   async function handleSendPrompt(text: string) {
+    console.log("[App] Sending prompt:", text.slice(0, 50));
     setErrorLabel(null);
     const sessionId = await ensureSession();
+    console.log("[App] Session ID:", sessionId);
     const response = await promptSession(sessionId, text);
+    console.log("[App] Run ID:", response.run_id);
     setActiveRunId(response.run_id);
     setPendingAssistant("");
-    setActivity([]);
+    setToolEvents([]);
   }
 
   async function handleNewChat() {
@@ -73,53 +75,37 @@ function App() {
   }
 
   async function handleRename() {
-    if (!selectedSessionId) {
-      return;
-    }
+    if (!selectedSessionId) return;
     const nextTitle = window.prompt("Rename this chat", selectedSession?.title ?? "");
-    if (nextTitle === null) {
-      return;
-    }
+    if (nextTitle === null) return;
     await renameSession(selectedSessionId, nextTitle);
     await refreshSessions();
     await loadSession(selectedSessionId);
   }
 
   async function handleRetry() {
-    if (!selectedSession?.messages.length || !selectedSessionId) {
-      return;
-    }
-    const lastUser = [...selectedSession.messages].reverse().find((message) => message.role === "user");
-    if (!lastUser?.content) {
-      return;
-    }
+    if (!selectedSession?.messages.length || !selectedSessionId) return;
+    const lastUser = [...selectedSession.messages].reverse().find((m) => m.role === "user");
+    if (!lastUser?.content) return;
     await handleSendPrompt(lastUser.content);
   }
 
   async function handleInterrupt() {
-    if (!selectedSessionId) {
-      return;
-    }
+    if (!selectedSessionId) return;
     await cancelSession(selectedSessionId);
   }
 
   async function handleFork() {
-    if (!selectedSessionId) {
-      return;
-    }
+    if (!selectedSessionId) return;
     const forked = await forkSession(selectedSessionId);
     await refreshSessions(false);
     await loadSession(forked.session_id);
   }
 
   async function handleSwitchModel() {
-    if (!selectedSessionId) {
-      return;
-    }
+    if (!selectedSessionId) return;
     const modelId = window.prompt("Switch model", selectedSession?.model ?? "");
-    if (!modelId) {
-      return;
-    }
+    if (!modelId) return;
     await switchModel(selectedSessionId, modelId);
     await refreshSessions();
     await loadSession(selectedSessionId);
@@ -130,31 +116,41 @@ function App() {
       try {
         const health = await fetchHealth();
         setConnectionLabel(String(health.bridge_state ?? "ready"));
+        setConnected(true);
         await refreshSessions(false);
       } catch (error) {
         setConnectionLabel("Bridge unavailable");
+        setConnected(false);
         setErrorLabel(error instanceof Error ? error.message : "Bridge unavailable");
       }
     })();
   }, []);
 
   useEffect(() => {
-    if (!selectedSessionId) {
-      return;
-    }
+    if (!selectedSessionId) return;
+    setPendingAssistant("");
+    setToolEvents([]);
     void loadSession(selectedSessionId);
   }, [selectedSessionId]);
 
   useEffect(() => {
     const socket = new WebSocket(createSocketUrl());
+
+    socket.onopen = () => setConnected(true);
+    socket.onclose = () => setConnected(false);
+
     socket.onmessage = (event) => {
       const parsed = JSON.parse(event.data) as BridgeEvent | Record<string, unknown>;
+      console.log("[WS] Raw event:", JSON.stringify(parsed).slice(0, 200));
+
       if (!("type" in parsed)) {
         setConnectionLabel(String(parsed.bridge_state ?? "ready"));
         return;
       }
 
       const bridgeEvent = parsed as BridgeEvent;
+      console.log("[WS] Event type:", bridgeEvent.type, "session_id:", bridgeEvent.session_id, "selected:", selectedSessionId);
+
       if (bridgeEvent.type === "bridge.status") {
         setConnectionLabel(bridgeEvent.message ?? bridgeEvent.status ?? "ready");
         return;
@@ -162,18 +158,22 @@ function App() {
 
       if (bridgeEvent.session_id && bridgeEvent.session_id === selectedSessionId) {
         if (bridgeEvent.type === "message.delta") {
+          console.log("[WS] message.delta text:", (bridgeEvent.text ?? "").slice(0, 50));
           setPendingAssistant((current) => current + (bridgeEvent.text ?? ""));
         }
 
-        if (
-          bridgeEvent.type === "tool.started" ||
-          bridgeEvent.type === "tool.completed" ||
-          bridgeEvent.type === "thinking.delta" ||
-          bridgeEvent.type === "run.finished" ||
-          bridgeEvent.type === "run.cancelled" ||
-          bridgeEvent.type === "run.failed"
-        ) {
-          setActivity((current) => [bridgeEvent, ...current].slice(0, 40));
+        if (bridgeEvent.type === "tool.started" || bridgeEvent.type === "tool.completed") {
+          setToolEvents((current) => [
+            ...current,
+            {
+              id: `${bridgeEvent.type}-${Date.now()}`,
+              type: bridgeEvent.type as "tool.started" | "tool.completed",
+              title: bridgeEvent.title,
+              text: bridgeEvent.text,
+              timestamp: Date.now(),
+              success: bridgeEvent.type === "tool.completed",
+            },
+          ]);
         }
 
         if (bridgeEvent.type === "approval.requested") {
@@ -185,23 +185,31 @@ function App() {
           });
         }
 
+        if (bridgeEvent.type === "session.snapshot") {
+          console.log("[WS] Session snapshot, loading full messages");
+          setPendingAssistant("");
+          if (selectedSessionId) void loadSession(selectedSessionId);
+          void refreshSessions();
+          setActiveRunId(null);
+        }
+
         if (
-          bridgeEvent.type === "session.snapshot" ||
           bridgeEvent.type === "run.finished" ||
           bridgeEvent.type === "run.cancelled" ||
           bridgeEvent.type === "run.failed"
         ) {
-          if (selectedSessionId) {
-            void loadSession(selectedSessionId);
-          }
+          console.log("[WS] Run ended:", bridgeEvent.type);
           void refreshSessions();
           setActiveRunId(null);
         }
+      } else if (bridgeEvent.session_id) {
+        console.log("[WS] Session ID mismatch:", bridgeEvent.session_id, "!==", selectedSessionId);
       }
     };
 
     socket.onerror = () => {
-      setConnectionLabel("WebSocket disconnected");
+      setConnectionLabel("Disconnected");
+      setConnected(false);
     };
 
     return () => {
@@ -229,39 +237,48 @@ function App() {
       id: "new",
       label: "New chat",
       description: "Create a fresh ACP session",
+      icon: "+",
+      shortcut: "⌘N",
       onSelect: handleNewChat,
     },
     {
       id: "rename",
       label: "Rename chat",
       description: "Update the session title stored in Hermes",
+      icon: "✎",
       onSelect: handleRename,
     },
     {
       id: "retry",
       label: "Retry last prompt",
       description: "Resend the last user message",
+      icon: "↻",
       onSelect: handleRetry,
     },
     {
       id: "interrupt",
       label: "Interrupt run",
       description: "Cancel the current ACP turn",
+      icon: "■",
       onSelect: handleInterrupt,
     },
     {
       id: "fork",
       label: "Fork chat",
       description: "Create a new ACP session from this context",
+      icon: "⎋",
       onSelect: handleFork,
     },
     {
       id: "model",
       label: "Switch model",
       description: "Call ACP session model switching",
+      icon: "◈",
       onSelect: handleSwitchModel,
     },
   ];
+
+  const isConnected = connected && !errorLabel;
 
   return (
     <div className="app-shell">
@@ -274,38 +291,53 @@ function App() {
 
       <main className="workspace">
         <header className="workspace__header">
-          <div>
-            <p className="eyebrow">ACP Bridge</p>
-            <h2>{selectedSession?.title || "Hermes Workspace"}</h2>
+          <div className="workspace__title-group">
+            <p className="workspace__eyebrow">ACP Bridge</p>
+            <h2 className="workspace__title">
+              {selectedSession?.title || "Hermes Workspace"}
+            </h2>
           </div>
           <div className="workspace__header-actions">
-            <span className="status-pill">{connectionLabel}</span>
-            <button className="ghost-button" onClick={() => setPaletteOpen(true)} type="button">
-              Commands
-            </button>
+            <span className="status-indicator">
+              <span className={`status-dot${!isConnected ? " status-dot--disconnected" : ""}`} />
+              <span className="status-label">{connectionLabel}</span>
+            </span>
             <button
-              className="ghost-button"
+              className="icon-btn"
               disabled={!activeRunId}
               onClick={() => void handleInterrupt()}
+              title="Interrupt run"
               type="button"
             >
-              Interrupt
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+            <button
+              className="icon-btn icon-btn--accent"
+              onClick={() => setPaletteOpen(true)}
+              title="Commands"
+              type="button"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="12" cy="5" r="1" />
+                <circle cx="12" cy="19" r="1" />
+              </svg>
             </button>
           </div>
         </header>
 
         {errorLabel ? <div className="error-banner">{errorLabel}</div> : null}
 
-        <section className="workspace__body">
-          <div className="chat-pane">
-            <ChatTranscript
-              messages={selectedSession?.messages ?? []}
-              pendingAssistant={pendingAssistant}
-            />
-            <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />
-          </div>
-          <ActivityRail events={activity} />
-        </section>
+        <div className="chat-pane">
+          <ChatTranscript
+            messages={selectedSession?.messages ?? []}
+            pendingAssistant={pendingAssistant}
+            toolEvents={toolEvents}
+          />
+          <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />
+        </div>
       </main>
 
       <CommandPalette
@@ -317,14 +349,32 @@ function App() {
       {approval ? (
         <div className="approval-overlay" role="presentation">
           <div className="approval-card" role="dialog">
-            <p className="eyebrow">Approval Required</p>
-            <h3>Hermes wants to run a guarded command</h3>
-            <pre className="approval-card__body">
-              {JSON.stringify(approval.toolCall, null, 2)}
-            </pre>
+            <div className="approval-card__header">
+              <div className="approval-card__icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="approval-card__title">Approval Required</h3>
+                <p className="approval-card__subtitle">Hermes wants to run a guarded command</p>
+              </div>
+            </div>
+            <div className="approval-card__body">
+              <table>
+                <tbody>
+                  {Object.entries(approval.toolCall).map(([key, value]) => (
+                    <tr key={key}>
+                      <th>{key}</th>
+                      <td>{typeof value === "string" ? value : JSON.stringify(value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="approval-card__actions">
               <button
-                className="ghost-button"
+                className="btn btn--danger"
                 onClick={() => {
                   void resolveApproval(approval.approvalId, "deny");
                   setApproval(null);
@@ -334,7 +384,7 @@ function App() {
                 Deny
               </button>
               <button
-                className="ghost-button"
+                className="btn btn--ghost"
                 onClick={() => {
                   void resolveApproval(approval.approvalId, "allow_once");
                   setApproval(null);
@@ -344,7 +394,7 @@ function App() {
                 Allow once
               </button>
               <button
-                className="primary-button"
+                className="btn btn--primary"
                 onClick={() => {
                   void resolveApproval(approval.approvalId, "allow_always");
                   setApproval(null);

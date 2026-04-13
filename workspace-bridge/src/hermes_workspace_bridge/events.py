@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, is_dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def to_jsonable(value: Any) -> Any:
@@ -49,24 +52,34 @@ def extract_text(value: Any) -> str:
     return ""
 
 
-def normalize_session_update(update: Any, *, session_id: str, run_id: str | None) -> dict[str, Any]:
-    payload = to_jsonable(update) or {}
-    raw_type = payload.get("sessionUpdate") or payload.get("session_update") or "unknown"
-    base = {
+def normalize_session_update(
+    update: Any, *, session_id: str, run_id: str | None
+) -> dict[str, Any]:
+    try:
+        payload = to_jsonable(update) or {}
+    except Exception:
+        logger.exception("Failed to serialize session update for %s", session_id)
+        payload = {}
+
+    raw_type = (
+        payload.get("sessionUpdate") or payload.get("session_update") or "unknown"
+    )
+    base: dict[str, Any] = {
         "type": "session.update",
         "raw_type": raw_type,
         "session_id": session_id,
         "run_id": run_id,
         "timestamp": time.time(),
-        "payload": payload,
     }
 
     if raw_type == "agent_message_chunk":
         base["type"] = "message.delta"
-        base["text"] = extract_text(payload)
+        content = payload.get("content") or payload.get("delta") or payload
+        base["text"] = extract_text(content)
     elif raw_type == "agent_thought_chunk":
         base["type"] = "thinking.delta"
-        base["text"] = extract_text(payload)
+        content = payload.get("content") or payload.get("delta") or payload
+        base["text"] = extract_text(content)
     elif raw_type == "tool_call":
         base["type"] = "tool.started"
         base["tool_call_id"] = payload.get("toolCallId") or payload.get("tool_call_id")
@@ -76,16 +89,33 @@ def normalize_session_update(update: Any, *, session_id: str, run_id: str | None
         base["type"] = "tool.completed"
         base["tool_call_id"] = payload.get("toolCallId") or payload.get("tool_call_id")
         base["status"] = payload.get("status")
-        base["text"] = extract_text(payload.get("rawOutput") or payload.get("raw_output"))
+        raw_output = payload.get("rawOutput") or payload.get("raw_output")
+        base["text"] = extract_text(raw_output) if raw_output else ""
     elif raw_type == "available_commands_update":
         base["type"] = "commands.available"
-        commands = payload.get("availableCommands") or payload.get("available_commands") or []
+        commands = (
+            payload.get("availableCommands") or payload.get("available_commands") or []
+        )
         base["commands"] = [to_jsonable(command) for command in commands]
+
+    if base["type"] != "session.update":
+        logger.debug(
+            "Event normalized: %s -> %s (text_len=%d)",
+            raw_type,
+            base["type"],
+            len(base.get("text", "")),
+        )
+    else:
+        logger.warning(
+            "Unrecognized session update type: %s for session %s", raw_type, session_id
+        )
 
     return base
 
 
-def normalize_prompt_response(response: Any, *, session_id: str, run_id: str) -> dict[str, Any]:
+def normalize_prompt_response(
+    response: Any, *, session_id: str, run_id: str
+) -> dict[str, Any]:
     payload = to_jsonable(response) or {}
     stop_reason = payload.get("stopReason") or payload.get("stop_reason") or "end_turn"
     event_type = "run.cancelled" if stop_reason == "cancelled" else "run.finished"

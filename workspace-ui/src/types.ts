@@ -36,6 +36,7 @@ export type BridgeEvent = {
   title?: string;
   status?: string;
   message?: string;
+  bridge_state?: string;
   commands?: Array<{ name: string; description?: string }>;
   approval_id?: string;
   tool_call?: Record<string, unknown>;
@@ -49,4 +50,13 @@ export type ApprovalState = {
   sessionId: string;
   toolCall: Record<string, unknown>;
   options: Array<Record<string, unknown>>;
+};
+
+export type ToolEvent = {
+  id: string;
+  type: "tool.started" | "tool.completed";
+  title?: string;
+  text?: string;
+  timestamp: number;
+  success?: boolean;
 };

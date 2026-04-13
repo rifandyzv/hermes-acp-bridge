@@ -111,7 +111,9 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Session not found")
 
     @app.post("/api/approvals/{approval_id}")
-    async def resolve_approval(approval_id: str, request: ApprovalDecisionRequest) -> dict[str, Any]:
+    async def resolve_approval(
+        approval_id: str, request: ApprovalDecisionRequest
+    ) -> dict[str, Any]:
         try:
             await bridge.resolve_approval(approval_id, request.decision)
         except KeyError:
@@ -126,7 +128,10 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             await websocket.send_json(await bridge.health())
             while True:
                 event = await queue.get()
-                await websocket.send_json(event)
+                try:
+                    await websocket.send_json(event)
+                except Exception:
+                    break
         except WebSocketDisconnect:
             pass
         finally:
