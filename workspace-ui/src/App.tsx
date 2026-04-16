@@ -19,6 +19,11 @@ import {
 } from "./lib/api";
 import type { ApprovalState, BridgeEvent, SessionDetail, SessionSummary, ToolEvent } from "./types";
 
+type SlashCommand = {
+  name: string;
+  description: string;
+};
+
 function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -32,6 +37,7 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [approval, setApproval] = useState<ApprovalState | null>(null);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
 
   async function refreshSessions(preserveSelection = true) {
     const nextSessions = await fetchSessions();
@@ -57,14 +63,12 @@ function App() {
   }
 
   async function handleSendPrompt(text: string) {
-    console.log("[App] Sending prompt:", text.slice(0, 50));
     setErrorLabel(null);
     const sessionId = await ensureSession();
-    console.log("[App] Session ID:", sessionId);
     const response = await promptSession(sessionId, text);
-    console.log("[App] Run ID:", response.run_id);
     setActiveRunId(response.run_id);
     setPendingAssistant("");
+    setPendingThinking("");
     setToolEvents([]);
   }
 
@@ -129,6 +133,7 @@ function App() {
   useEffect(() => {
     if (!selectedSessionId) return;
     setPendingAssistant("");
+    setPendingThinking("");
     setToolEvents([]);
     void loadSession(selectedSessionId);
   }, [selectedSessionId]);
@@ -141,7 +146,6 @@ function App() {
 
     socket.onmessage = (event) => {
       const parsed = JSON.parse(event.data) as BridgeEvent | Record<string, unknown>;
-      console.log("[WS] Raw event:", JSON.stringify(parsed).slice(0, 200));
 
       if (!("type" in parsed)) {
         setConnectionLabel(String(parsed.bridge_state ?? "ready"));
@@ -149,7 +153,6 @@ function App() {
       }
 
       const bridgeEvent = parsed as BridgeEvent;
-      console.log("[WS] Event type:", bridgeEvent.type, "session_id:", bridgeEvent.session_id, "selected:", selectedSessionId);
 
       if (bridgeEvent.type === "bridge.status") {
         setConnectionLabel(bridgeEvent.message ?? bridgeEvent.status ?? "ready");
@@ -158,8 +161,11 @@ function App() {
 
       if (bridgeEvent.session_id && bridgeEvent.session_id === selectedSessionId) {
         if (bridgeEvent.type === "message.delta") {
-          console.log("[WS] message.delta text:", (bridgeEvent.text ?? "").slice(0, 50));
           setPendingAssistant((current) => current + (bridgeEvent.text ?? ""));
+        }
+
+        if (bridgeEvent.type === "thinking.delta") {
+          setPendingThinking((current) => current + (bridgeEvent.text ?? ""));
         }
 
         if (bridgeEvent.type === "tool.started" || bridgeEvent.type === "tool.completed") {
@@ -185,9 +191,18 @@ function App() {
           });
         }
 
+        if (bridgeEvent.type === "commands.available" && bridgeEvent.commands) {
+          setAvailableCommands(
+            bridgeEvent.commands.map((c) => ({
+              name: c.name,
+              description: c.description ?? "",
+            }))
+          );
+        }
+
         if (bridgeEvent.type === "session.snapshot") {
-          console.log("[WS] Session snapshot, loading full messages");
           setPendingAssistant("");
+          setPendingThinking("");
           if (selectedSessionId) void loadSession(selectedSessionId);
           void refreshSessions();
           setActiveRunId(null);
@@ -198,12 +213,10 @@ function App() {
           bridgeEvent.type === "run.cancelled" ||
           bridgeEvent.type === "run.failed"
         ) {
-          console.log("[WS] Run ended:", bridgeEvent.type);
+          setPendingThinking("");
           void refreshSessions();
           setActiveRunId(null);
         }
-      } else if (bridgeEvent.session_id) {
-        console.log("[WS] Session ID mismatch:", bridgeEvent.session_id, "!==", selectedSessionId);
       }
     };
 
@@ -231,6 +244,19 @@ function App() {
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
   }, []);
+
+  const slashCommands = availableCommands.map((cmd) => ({
+    id: `slash-${cmd.name}`,
+    label: `/${cmd.name}`,
+    description: cmd.description,
+    icon: "/",
+    onSelect: async () => {
+      const input = window.prompt(`/${cmd.name}`, "");
+      if (input !== null) {
+        await handleSendPrompt(`/${cmd.name} ${input}`.trim());
+      }
+    },
+  }));
 
   const paletteCommands = [
     {
@@ -276,6 +302,7 @@ function App() {
       icon: "◈",
       onSelect: handleSwitchModel,
     },
+    ...slashCommands,
   ];
 
   const isConnected = connected && !errorLabel;
@@ -334,6 +361,7 @@ function App() {
           <ChatTranscript
             messages={selectedSession?.messages ?? []}
             pendingAssistant={pendingAssistant}
+            pendingThinking={pendingThinking}
             toolEvents={toolEvents}
           />
           <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />

@@ -7,6 +7,7 @@ import type { SessionMessage, ToolEvent } from "../types";
 type ChatTranscriptProps = {
   messages: SessionMessage[];
   pendingAssistant: string;
+  pendingThinking: string;
   toolEvents: ToolEvent[];
 };
 
@@ -66,6 +67,35 @@ function MarkdownContent({ content }: { content: string }) {
       >
         {content}
       </Markdown>
+    </div>
+  );
+}
+
+function ThinkingBubble({ text }: { text: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (!text.trim()) return null;
+
+  return (
+    <div className="thinking-bubble">
+      <button
+        className="thinking-bubble__header"
+        onClick={() => setCollapsed(!collapsed)}
+        type="button"
+      >
+        <span className="thinking-bubble__icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </span>
+        <span className="thinking-bubble__label">Thinking</span>
+        <span className="thinking-bubble__toggle">{collapsed ? "▸" : "▾"}</span>
+      </button>
+      {!collapsed && (
+        <div className="thinking-bubble__content streaming-cursor">
+          {text}
+        </div>
+      )}
     </div>
   );
 }
@@ -207,9 +237,8 @@ function StreamingBubble({ text }: { text: string }) {
   );
 }
 
-export function ChatTranscript({ messages, pendingAssistant, toolEvents }: ChatTranscriptProps) {
-  const hasContent = messages.length > 0 || pendingAssistant;
-  console.log("[ChatTranscript] messages:", messages.length, "pendingAssistant:", pendingAssistant.length, "hasContent:", hasContent);
+export function ChatTranscript({ messages, pendingAssistant, pendingThinking, toolEvents }: ChatTranscriptProps) {
+  const hasContent = messages.length > 0 || pendingAssistant || pendingThinking;
 
   if (!hasContent) {
     return (
@@ -280,11 +309,16 @@ export function ChatTranscript({ messages, pendingAssistant, toolEvents }: ChatT
     elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
   }
 
-  if (pendingAssistant) {
+  if (pendingAssistant || pendingThinking || toolEvents.length > 0) {
+    if (pendingThinking) {
+      elements.push(<ThinkingBubble key="thinking" text={pendingThinking} />);
+    }
     if (toolEvents.length > 0) {
       elements.push(<ToolChipGroup key={`tools-live-${keyCounter++}`} tools={toolEvents} />);
     }
-    elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
+    if (pendingAssistant) {
+      elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
+    }
   }
 
   return (

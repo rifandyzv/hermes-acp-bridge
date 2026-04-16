@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
 from typing import Any
 
 from hermes_constants import get_hermes_home
 from hermes_state import SessionDB
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_cwd(model_config: str | None, fallback: str) -> str:
@@ -18,18 +22,40 @@ def _extract_cwd(model_config: str | None, fallback: str) -> str:
     return str(cwd).strip() if cwd else fallback
 
 
+def _try_auto_title(
+    db: SessionDB,
+    session_id: str,
+    user_message: str,
+    assistant_response: str,
+) -> None:
+    """Fire-and-forget auto-title generation using the upstream Hermes title generator.
+
+    Runs in a background thread so it never blocks the bridge.
+    Silently skips if title already exists or generation fails.
+    """
+    try:
+        from agent.title_generator import auto_title_session
+
+        auto_title_session(db, session_id, user_message, assistant_response)
+    except Exception:
+        logger.debug("Auto-title generation unavailable for session %s", session_id)
+
+
 class SessionStore:
     def __init__(self, default_cwd: str, db: SessionDB | None = None):
         self._db = db or SessionDB(get_hermes_home() / "state.db")
         self._default_cwd = default_cwd
 
-    def list_sessions(self, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        sessions = self._db.list_sessions_rich(source="acp", limit=limit, offset=offset)
+    def list_sessions(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        # No source filter — show all sessions (CLI + ACP) for cross-visibility
+        sessions = self._db.list_sessions_rich(limit=limit, offset=offset)
         return [self._serialize_summary(row) for row in sessions]
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         row = self._db.get_session(session_id)
-        if row is None or row.get("source") != "acp":
+        if row is None:
             return None
         return {
             "session_id": row["id"],
@@ -50,6 +76,32 @@ class SessionStore:
         if session is None:
             raise KeyError(session_id)
         return session
+
+    def trigger_auto_title(
+        self,
+        session_id: str,
+        user_message: str,
+        assistant_response: str,
+    ) -> None:
+        """Start background title generation after first exchange.
+
+        Only triggers when the session has no title yet and this looks like
+        the first user→assistant exchange.
+        """
+        try:
+            existing = self._db.get_session_title(session_id)
+            if existing:
+                return  # already has a title
+        except Exception:
+            return
+
+        thread = threading.Thread(
+            target=_try_auto_title,
+            args=(self._db, session_id, user_message, assistant_response),
+            daemon=True,
+            name=f"auto-title-{session_id[:8]}",
+        )
+        thread.start()
 
     def _serialize_summary(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

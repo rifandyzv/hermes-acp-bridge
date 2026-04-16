@@ -45,7 +45,7 @@ export function Composer({ disabled, onSubmit }: ComposerProps) {
             disabled={disabled}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Hermes anything..."
+            placeholder="Ask Hermes anything... Type / for commands"
             rows={1}
             value={value}
           />

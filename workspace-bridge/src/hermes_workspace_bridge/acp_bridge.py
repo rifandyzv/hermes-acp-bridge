@@ -322,6 +322,13 @@ class ACPBridgeService:
                     response, session_id=session_id, run_id=run_id
                 )
             )
+            # Auto-generate session title after first exchange (non-blocking)
+            payload = to_jsonable(response)
+            final_response = (
+                payload.get("finalResponse") or payload.get("final_response") or ""
+            )
+            if final_response:
+                self.session_store.trigger_auto_title(session_id, text, final_response)
         except Exception as exc:
             logger.exception("ACP prompt failed for session %s", session_id)
             await self.event_bus.publish(
