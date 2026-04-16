@@ -60,3 +60,27 @@ export type ToolEvent = {
   timestamp: number;
   success?: boolean;
 };
+
+export type WikiDocument = {
+  id: string;
+  title: string;
+  type: "entity" | "concept" | "comparison" | "query" | "raw";
+  path: string;
+  size: number;
+  modified: number;
+  section: string;
+  snippet?: string;
+  relevance?: number;
+};
+
+export type WikiDocumentDetail = {
+  id: string;
+  title: string;
+  path: string;
+  content: string;
+  body: string;
+  frontmatter: Record<string, string>;
+  size: number;
+  modified: number;
+  mime: string;
+};

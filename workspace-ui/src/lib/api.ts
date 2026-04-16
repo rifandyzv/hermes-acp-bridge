@@ -1,4 +1,4 @@
-import type { SessionDetail, SessionSummary } from "../types";
+import type { SessionDetail, SessionSummary, WikiDocument, WikiDocumentDetail } from "../types";
 
 const bridgeOrigin = import.meta.env.VITE_BRIDGE_ORIGIN ?? "";
 const bridgeWsOrigin =
@@ -108,4 +108,29 @@ export async function resolveApproval(
     body: JSON.stringify({ decision }),
   });
   await readJson(response);
+}
+
+export async function fetchWikiDocuments(): Promise<WikiDocument[]> {
+  const response = await fetch(makeUrl("/api/wiki/documents"));
+  return readJson(response);
+}
+
+export async function fetchWikiDocument(docPath: string): Promise<WikiDocumentDetail> {
+  const response = await fetch(makeUrl(`/api/wiki/documents/${docPath}`));
+  return readJson(response);
+}
+
+export async function uploadWikiDocument(file: File): Promise<WikiDocument> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(makeUrl("/api/wiki/upload"), {
+    method: "POST",
+    body: formData,
+  });
+  return readJson(response);
+}
+
+export async function searchWikiDocuments(query: string): Promise<WikiDocument[]> {
+  const response = await fetch(makeUrl(`/api/wiki/search?q=${encodeURIComponent(query)}`));
+  return readJson(response);
 }
