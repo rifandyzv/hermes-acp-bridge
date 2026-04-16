@@ -3,12 +3,20 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.responses import StreamingResponse
 
 from .acp_bridge import ACPBridgeService
 from .config import BridgeConfig
+from .wiki_manager import (
+    get_document,
+    get_wiki_index,
+    list_documents,
+    search_documents,
+    upload_file,
+)
 
 
 class CreateSessionRequest(BaseModel):
@@ -29,6 +37,10 @@ class ModelRequest(BaseModel):
 
 class ApprovalDecisionRequest(BaseModel):
     decision: str
+
+
+class WikiSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
 
 
 def create_app(config: BridgeConfig | None = None) -> FastAPI:
@@ -136,5 +148,33 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             pass
         finally:
             await bridge.event_bus.unsubscribe(queue)
+
+    @app.get("/api/wiki/documents")
+    async def wiki_list_documents() -> list[dict[str, Any]]:
+        return list_documents()
+
+    @app.get("/api/wiki/documents/{doc_path:path}")
+    async def wiki_get_document(doc_path: str) -> dict[str, Any]:
+        doc = get_document(doc_path)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return doc
+
+    @app.post("/api/wiki/upload")
+    async def wiki_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+        content = await file.read()
+        filename = file.filename or "untitled"
+        try:
+            return upload_file(content, filename)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/wiki/search")
+    async def wiki_search(q: str) -> list[dict[str, Any]]:
+        return search_documents(q)
+
+    @app.get("/api/wiki/index")
+    async def wiki_index() -> dict[str, str]:
+        return {"content": get_wiki_index()}
 
     return app
