@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ChatTranscript } from "./components/ChatTranscript";
 import { CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
+import { KnowledgePage } from "./components/KnowledgePage";
 import { SessionSidebar } from "./components/SessionSidebar";
 import {
   cancelSession,
@@ -38,6 +39,7 @@ function App() {
   const [approval, setApproval] = useState<ApprovalState | null>(null);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
+  const [activeTab, setActiveTab] = useState<"chat" | "knowledge">("chat");
 
   async function refreshSessions(preserveSelection = true) {
     const nextSessions = await fetchSessions();
@@ -310,6 +312,8 @@ function App() {
   return (
     <div className="app-shell">
       <SessionSidebar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         onNewChat={() => void handleNewChat()}
         onSelect={setSelectedSessionId}
         selectedSessionId={selectedSessionId}
@@ -357,15 +361,21 @@ function App() {
 
         {errorLabel ? <div className="error-banner">{errorLabel}</div> : null}
 
-        <div className="chat-pane">
-          <ChatTranscript
-            messages={selectedSession?.messages ?? []}
-            pendingAssistant={pendingAssistant}
-            pendingThinking={pendingThinking}
-            toolEvents={toolEvents}
-          />
-          <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />
-        </div>
+        {activeTab === "chat" ? (
+          <div className="chat-pane">
+            <ChatTranscript
+              messages={selectedSession?.messages ?? []}
+              pendingAssistant={pendingAssistant}
+              pendingThinking={pendingThinking}
+              toolEvents={toolEvents}
+            />
+            <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />
+          </div>
+        ) : (
+          <div className="knowledge-pane">
+            <KnowledgePage />
+          </div>
+        )}
       </main>
 
       <CommandPalette
