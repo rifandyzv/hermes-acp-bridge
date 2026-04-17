@@ -40,6 +40,7 @@ function App() {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
   const [activeTab, setActiveTab] = useState<"chat" | "knowledge">("chat");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   async function refreshSessions(preserveSelection = true) {
     const nextSessions = await fetchSessions();
@@ -313,9 +314,11 @@ function App() {
     <div className="app-shell">
       <SessionSidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        isOpen={sidebarOpen}
         onNewChat={() => void handleNewChat()}
         onSelect={setSelectedSessionId}
+        onTabChange={setActiveTab}
+        onToggle={() => setSidebarOpen((v) => !v)}
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
