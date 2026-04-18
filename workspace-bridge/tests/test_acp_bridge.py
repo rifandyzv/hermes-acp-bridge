@@ -96,6 +96,13 @@ def _service(tmp_path, agent_factory):
     return service
 
 
+async def _collect_events(queue: asyncio.Queue, count: int) -> list[dict]:
+    events = []
+    for _ in range(count):
+        events.append(await asyncio.wait_for(queue.get(), timeout=1))
+    return events
+
+
 def test_direct_runtime_creates_session_and_completes_turn(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     service = _service(tmp_path, _FakeAgent)
@@ -138,6 +145,83 @@ def test_interrupt_mode_queues_followup_turn(tmp_path, monkeypatch):
         await next_active.task
 
         assert runtime.history[-1]["content"] == "hello world"
+        await service.stop()
+
+    asyncio.run(runner())
+
+
+def test_session_info_and_message_start_include_run_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    service = _service(tmp_path, _FakeAgent)
+
+    async def runner():
+        await service.start()
+        queue = await service.event_bus.subscribe()
+        created = await service.create_session(cwd=str(tmp_path / "project"))
+
+        response = await service.submit_input(created["session_id"], "hello", mode="new_turn")
+        await service._active_runs_by_id[response["run_id"]].task
+
+        events = await _collect_events(queue, 8)
+        session_info_events = [event for event in events if event["type"] == "session.info"]
+        message_start_events = [event for event in events if event["type"] == "message.start"]
+
+        assert any(
+            event.get("running") is True
+            and event.get("current_run_id") == response["run_id"]
+            and event.get("current_turn_id") == response["turn_id"]
+            for event in session_info_events
+        )
+        assert any(
+            event.get("prompt") == "hello"
+            and event.get("run_id") == response["run_id"]
+            for event in message_start_events
+        )
+
+        await service.event_bus.unsubscribe(queue)
+        await service.stop()
+
+    asyncio.run(runner())
+
+
+def test_queueing_emits_session_scoped_queue_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    service = _service(tmp_path, _BlockingAgent)
+
+    async def runner():
+        await service.start()
+        queue = await service.event_bus.subscribe()
+        created = await service.create_session(cwd=str(tmp_path / "project"))
+
+        first = await service.submit_input(created["session_id"], "first", mode="new_turn")
+        queued = await service.submit_input(created["session_id"], "second", mode="interrupt")
+        assert queued["queued"] is True
+
+        events = await _collect_events(queue, 8)
+        queue_events = [event for event in events if event["type"] == "run.queued"]
+        session_info_events = [event for event in events if event["type"] == "session.info"]
+
+        assert any(
+            event.get("prompt") == "second"
+            and event.get("run_id") == first["run_id"]
+            and event.get("mode") == "interrupt"
+            for event in queue_events
+        )
+        assert any(
+            event.get("running") is True
+            and event.get("queued_count") == 1
+            for event in session_info_events
+        )
+
+        first_active = service._active_runs_by_id.get(first["run_id"])
+        if first_active is not None:
+            await first_active.task
+
+        next_active = service._active_runs_by_session.get(created["session_id"])
+        if next_active is not None:
+            await next_active.task
+
+        await service.event_bus.unsubscribe(queue)
         await service.stop()
 
     asyncio.run(runner())

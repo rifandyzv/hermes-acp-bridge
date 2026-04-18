@@ -79,6 +79,11 @@ export type BridgeEvent = {
   metadata?: Record<string, unknown>;
   pattern_keys?: string[];
   already_streamed?: boolean;
+  mode?: string;
+  running?: boolean;
+  queued_count?: number;
+  current_run_id?: string;
+  current_turn_id?: number;
 };
 
 export type LiveTool = {
@@ -94,6 +99,14 @@ export type LiveTool = {
   status: "running" | "complete";
 };
 
+export type LiveActivity = {
+  id: string;
+  kind: "status" | "thinking" | "reasoning" | "tool";
+  label: string;
+  text: string;
+  tone?: "running" | "complete" | "waiting";
+};
+
 export type LiveTurn = {
   runId: string;
   turnId: number;
@@ -105,6 +118,27 @@ export type LiveTurn = {
   assistant: string;
   interim: string[];
   tools: LiveTool[];
+  activity: LiveActivity[];
+};
+
+export type QueuedTurn = {
+  id: string;
+  userText: string;
+  mode: "interrupt" | "queue" | "new_turn";
+};
+
+export type SessionRuntimeState = {
+  sessionId: string;
+  statusLabel: string;
+  statusKind?: string;
+  activeTurn: LiveTurn | null;
+  queuedTurns: QueuedTurn[];
+  promptRequest: PromptRequestState | null;
+  currentRunId: string | null;
+  currentTurnId: number | null;
+  running: boolean;
+  queuedCount: number;
+  loadVersion: number;
 };
 
 export type PromptRequestState =

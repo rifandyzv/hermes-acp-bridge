@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 
-import type { LiveTool, LiveTurn, SessionMessage } from "../types";
+import type {
+  LiveActivity,
+  LiveTool,
+  SessionMessage,
+  SessionRuntimeState,
+} from "../types";
 
 type ChatTranscriptProps = {
   messages: SessionMessage[];
-  liveTurn: LiveTurn | null;
+  runtime: SessionRuntimeState | null;
 };
 
 const codeLanguages: Record<string, string[]> = {
@@ -79,7 +84,15 @@ function InsightPanel({ label, text }: { label: string; text: string }) {
         type="button"
       >
         <span className="thinking-bubble__icon">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </span>
@@ -108,7 +121,8 @@ function ToolGroup({ tools }: { tools: LiveTool[] }) {
       <button className="tool-chip__header" onClick={() => setExpanded((value) => !value)} type="button">
         <span className="tool-chip__icon">{runningCount > 0 ? "⚡" : "✓"}</span>
         <span className="tool-chip__label">
-          {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool{tools.length !== 1 ? "s" : ""}
+          {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool
+          {tools.length !== 1 ? "s" : ""}
         </span>
         <span className="tool-chip__count">{tools.length}</span>
       </button>
@@ -116,7 +130,11 @@ function ToolGroup({ tools }: { tools: LiveTool[] }) {
         {(expanded ? tools : tools.slice(Math.max(0, tools.length - 3))).map((tool) => (
           <div className="tool-chip__item tool-chip__item--card" key={tool.toolId}>
             <div className="tool-chip__item-header">
-              <span className={`tool-chip__status tool-chip__status--${tool.status === "complete" ? "success" : "running"}`}>
+              <span
+                className={`tool-chip__status tool-chip__status--${
+                  tool.status === "complete" ? "success" : "running"
+                }`}
+              >
                 {tool.status === "complete" ? "✓" : "…"}
               </span>
               <span className="tool-chip__item-title">{tool.name}</span>
@@ -143,7 +161,17 @@ function ToolGroup({ tools }: { tools: LiveTool[] }) {
   );
 }
 
-function MessageBubble({ message, pending = false }: { message: SessionMessage; pending?: boolean }) {
+function MessageBubble({
+  message,
+  pending = false,
+  queued = false,
+  badge,
+}: {
+  message: SessionMessage;
+  pending?: boolean;
+  queued?: boolean;
+  badge?: string;
+}) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const roleLabel = isUser ? "You" : isSystem ? "System" : "Hermes";
@@ -154,10 +182,15 @@ function MessageBubble({ message, pending = false }: { message: SessionMessage; 
   if (message.role === "tool" || message.role === "function") return null;
 
   return (
-    <article className={`message message--${isUser ? "user" : "assistant"}${pending ? " message--pending" : ""}`}>
+    <article
+      className={`message message--${isUser ? "user" : "assistant"}${
+        pending ? " message--pending" : ""
+      }${queued ? " message--queued" : ""}`}
+    >
       <header className="message__header">
         {!isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
         <span>{roleLabel}</span>
+        {badge ? <span className="message__badge">{badge}</span> : null}
         {isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
       </header>
       <div className="message__body">
@@ -175,6 +208,7 @@ function StreamingBubble({ text }: { text: string }) {
       <header className="message__header">
         <span className="message__avatar">H</span>
         <span>Hermes</span>
+        <span className="message__badge">Live</span>
       </header>
       <div className="message__body">
         <div className="streaming-cursor" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -217,8 +251,62 @@ function mergeToolCompletion(buffer: LiveTool[], message: SessionMessage): LiveT
   return next;
 }
 
-export function ChatTranscript({ messages, liveTurn }: ChatTranscriptProps) {
-  const hasContent = messages.length > 0 || liveTurn !== null;
+function LiveActivityPanel({ activity }: { activity: LiveActivity[] }) {
+  const visible = activity.filter((item) => item.kind !== "tool" && item.text.trim());
+  if (visible.length === 0) return null;
+
+  return (
+    <article className="live-console">
+      <header className="live-console__header">
+        <span className="live-console__pill">Live run</span>
+        <span className="live-console__meta">Continuous runtime feedback</span>
+      </header>
+      <div className="live-console__body">
+        {visible.map((item) => (
+          <section className="live-console__section" key={item.id}>
+            <div className="live-console__section-header">
+              <span className={`live-console__tone live-console__tone--${item.tone ?? "running"}`} />
+              <span className="live-console__section-label">{item.label}</span>
+            </div>
+            <div className="live-console__section-body">
+              <MarkdownContent content={item.text} />
+            </div>
+          </section>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+export function ChatTranscript({ messages, runtime }: ChatTranscriptProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+
+  const activeTurn = runtime?.activeTurn ?? null;
+  const queuedTurns = runtime?.queuedTurns ?? [];
+  const hasContent = messages.length > 0 || activeTurn !== null || queuedTurns.length > 0;
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || !stickToBottomRef.current) return;
+    element.scrollTop = element.scrollHeight;
+  }, [
+    messages,
+    activeTurn?.assistant,
+    activeTurn?.thinking,
+    activeTurn?.reasoning,
+    activeTurn?.interim,
+    activeTurn?.tools,
+    activeTurn?.statusText,
+    queuedTurns,
+  ]);
+
+  function handleScroll() {
+    const element = containerRef.current;
+    if (!element) return;
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 48;
+  }
 
   if (!hasContent) {
     return (
@@ -270,44 +358,54 @@ export function ChatTranscript({ messages, liveTurn }: ChatTranscriptProps) {
     elements.push(<ToolGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
   }
 
-  if (liveTurn) {
+  if (activeTurn) {
     elements.push(
       <MessageBubble
-        key={`live-user-${liveTurn.runId}`}
-        message={{ role: "user", content: liveTurn.userText }}
+        key={`live-user-${activeTurn.runId}`}
+        message={{ role: "user", content: activeTurn.userText }}
         pending
+        badge={runtime?.running ? "Active" : activeTurn.statusText}
       />
     );
-    if (liveTurn.statusText && liveTurn.statusText !== "Running") {
-      elements.push(
-        <InsightPanel key={`status-${liveTurn.runId}`} label="Status" text={liveTurn.statusText} />
-      );
-    }
-    if (liveTurn.thinking) {
-      elements.push(
-        <InsightPanel key={`thinking-${liveTurn.runId}`} label="Thinking" text={liveTurn.thinking} />
-      );
-    }
-    if (liveTurn.reasoning) {
-      elements.push(
-        <InsightPanel key={`live-reasoning-${liveTurn.runId}`} label="Reasoning" text={liveTurn.reasoning} />
-      );
-    }
-    liveTurn.interim.forEach((text, index) => {
+
+    elements.push(
+      <LiveActivityPanel key={`activity-${activeTurn.runId}`} activity={activeTurn.activity} />
+    );
+
+    activeTurn.interim.forEach((text, index) => {
       elements.push(
         <MessageBubble
-          key={`interim-${liveTurn.runId}-${index}`}
+          key={`interim-${activeTurn.runId}-${index}`}
           message={{ role: "assistant", content: text }}
+          badge="Interim"
         />
       );
     });
-    if (liveTurn.tools.length > 0) {
-      elements.push(<ToolGroup key={`live-tools-${liveTurn.runId}`} tools={liveTurn.tools} />);
+
+    if (activeTurn.tools.length > 0) {
+      elements.push(<ToolGroup key={`live-tools-${activeTurn.runId}`} tools={activeTurn.tools} />);
     }
-    if (liveTurn.assistant) {
-      elements.push(<StreamingBubble key={`stream-${liveTurn.runId}`} text={liveTurn.assistant} />);
+
+    if (activeTurn.assistant) {
+      elements.push(<StreamingBubble key={`stream-${activeTurn.runId}`} text={activeTurn.assistant} />);
     }
   }
 
-  return <div className="transcript">{elements}</div>;
+  queuedTurns.forEach((queuedTurn) => {
+    elements.push(
+      <MessageBubble
+        key={`queued-${queuedTurn.id}`}
+        message={{ role: "user", content: queuedTurn.userText }}
+        pending
+        queued
+        badge={queuedTurn.mode === "interrupt" ? "Queued after interrupt" : "Queued"}
+      />
+    );
+  });
+
+  return (
+    <div className="transcript" onScroll={handleScroll} ref={containerRef}>
+      {elements}
+    </div>
+  );
 }

@@ -402,6 +402,7 @@ class ACPBridgeService:
                     prompt=text,
                     mode=normalized_mode,
                 )
+                await self._publish_session_info(runtime)
                 return {
                     "session_id": session_id,
                     "status": "queued",
@@ -412,6 +413,7 @@ class ACPBridgeService:
 
             run_id, turn_id = self._start_run_unlocked(runtime, text)
 
+        await self._publish_session_info(runtime)
         await self._publish(
             "run.started",
             session_id=session_id,
@@ -424,6 +426,7 @@ class ACPBridgeService:
             session_id=session_id,
             run_id=run_id,
             turn_id=turn_id,
+            prompt=text,
         )
         return {
             "session_id": session_id,
@@ -832,6 +835,7 @@ class ACPBridgeService:
                     session_id=session_id,
                     run_id=next_run_id,
                     turn_id=next_turn_id,
+                    prompt=next_input.text,
                 )
 
     def _run_turn_sync(
@@ -966,6 +970,10 @@ class ACPBridgeService:
             model=runtime.model or getattr(runtime.agent, "model", "") or "",
             cwd=runtime.cwd,
             usage=self._get_usage(runtime.agent),
+            running=runtime.running,
+            queued_count=len(runtime.queued_inputs),
+            current_run_id=runtime.current_run_id,
+            current_turn_id=runtime.current_turn_id,
         )
 
     def _emit_runtime_event(

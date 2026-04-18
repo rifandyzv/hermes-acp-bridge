@@ -604,6 +604,20 @@ button {
   justify-content: flex-end;
 }
 
+.message__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .message__avatar {
   width: 22px;
   height: 22px;
@@ -642,6 +656,11 @@ button {
 .message--pending .message__body {
   opacity: 0.85;
   animation: pulse 2s ease-in-out infinite;
+}
+
+.message--queued .message__body {
+  background: rgba(232, 168, 76, 0.08);
+  border-color: var(--accent-border);
 }
 
 @keyframes pulse {
@@ -897,6 +916,102 @@ button {
 .tool-chip__status--running {
   background: var(--accent-subtle);
   color: var(--accent);
+}
+
+.live-console {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 720px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(180deg, rgba(232, 168, 76, 0.06), rgba(255, 255, 255, 0.02)),
+    var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  animation: fade-in 200ms ease;
+}
+
+.live-console__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-console__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live-console__meta {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+.live-console__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.live-console__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.live-console__section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.live-console__tone {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.live-console__tone--running {
+  background: var(--accent);
+}
+
+.live-console__tone--complete {
+  background: var(--green);
+}
+
+.live-console__tone--waiting {
+  background: var(--blue);
+}
+
+.live-console__section-label {
+  letter-spacing: 0.01em;
+}
+
+.live-console__section-body {
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  line-height: 1.6;
 }
 
 .thinking-bubble {

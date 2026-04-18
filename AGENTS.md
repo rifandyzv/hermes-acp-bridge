@@ -1,11 +1,23 @@
-# Zero-Touch Web Workspace via ACP Bridge
+# Hermes Web Workspace Runtime
 
   ## Summary
 
   Build the web workspace as a separate companion product, not as a Hermes codebase change. The product has two
-  parts: a React browser UI and a local Python sidecar. The sidecar launches hermes acp, speaks ACP over stdio using
-  the official Python ACP SDK, exposes browser-friendly HTTP/WebSocket APIs, and reads Hermes’ persisted ACP
-  sessions from ~/.hermes/state.db through hermes_state.SessionDB rather than patching Hermes.
+  parts: a React browser UI and a local Python sidecar. The current implementation uses a direct Hermes `AIAgent`
+  runtime inside the sidecar rather than ACP as the live chat transport. The sidecar exposes browser-friendly
+  HTTP/WebSocket APIs, persists sessions through the local SessionDB-backed store, and aims to match Hermes CLI/TUI
+  behavior closely enough that the browser feels like a real Hermes workspace rather than a thin chat wrapper.
+
+  ## Current Phase
+
+  The codebase is currently in the **behavioral parity and runtime stabilization** phase.
+
+  - The architecture pivot from ACP-driven chat to a direct `AIAgent` runtime is already implemented.
+  - Session-scoped run state, queueing, approvals, and live tool/thinking/reasoning updates are implemented.
+  - The main remaining gap is UX parity with classic CLI/TUI, especially around how “streaming” feels when Hermes
+    only emits final assistant text late in the turn.
+  - Work from this point should bias toward runtime correctness, session isolation, and transcript/event fidelity
+    before cosmetic polish.
 
   References that define the supported Hermes surface:
 
@@ -226,3 +238,83 @@
 
   **Workaround**: Show `thinking.delta` content in the chat during the run so users see activity. The bridge
   already normalizes `agent_thought_chunk` → `thinking.delta` correctly. The frontend just needs to render it.
+
+  ## Current Progress
+
+  ### Completed Features
+
+  - **Direct Hermes workspace runtime**
+    - Bridge now runs Hermes sessions through direct `AIAgent` instances instead of ACP prompt transport
+    - Session source is `workspace`, with per-session runtime objects inside the bridge
+    - Browser-facing live events include session info, run lifecycle, tool lifecycle, thinking, reasoning, and
+      blocking prompt requests
+
+  - **Session-scoped live run state**
+    - Each browser session keeps its own active turn, queued turns, status label, and prompt-request state
+    - Sending a prompt in one session no longer leaks “interrupting” or “queued” status into another session
+    - Queued user turns render immediately, then promote into the active turn when the backend starts them
+
+  - **Collapsible sidebar with rail mode**
+    - Claude-style collapsible sidebar (56px rail ↔ 280px full sidebar)
+    - Smooth slide animation with cubic-bezier easing
+    - Toggle button in header, rail shows icon-only navigation
+    - New chat button positioned at top of rail
+    - State persists open/closed via React state
+
+  - **Real-time chat UX**
+    - User messages appear immediately after sending, including queued follow-up turns
+    - Live activity panel shows status, thinking, reasoning, and tool progress during the run
+    - Tool execution chips are expandable and preserve per-turn tool lifecycle state
+    - Assistant text is shown incrementally when Hermes emits deltas, then persisted history is reloaded after run
+      completion
+    - Blocking prompts for approval, clarify, sudo, and secret capture are browser-native and session-scoped
+
+  - **Knowledge base (Wiki)**
+    - File upload UI (PDF, DOCX, PPTX, XLSX, MD, TXT)
+    - Documents stored at `~/wiki/raw/` with timestamp prefix
+    - Document search and browsing
+    - Markdown content rendering with syntax highlighting
+    - Wiki sections: raw, entities, concepts, comparisons, queries
+
+  - **Core session management**
+    - Create, rename, fork, and switch sessions
+    - Session list with time-based grouping (Today, Yesterday, This Week, Older)
+    - Model switching per session
+    - Command palette with keyboard shortcuts (⌘K)
+
+  - **Approval workflow**
+    - Modal dialog for tool permission requests
+    - Three decision options: Allow once, Allow always, Deny
+    - Clarify, sudo, and secret prompts are also supported
+    - Blocks Hermes execution until browser response
+
+  - **Bridge infrastructure**
+    - REST API endpoints for all session operations
+    - WebSocket event stream for real-time updates
+    - Health check endpoint
+    - Wiki document management API
+
+  ### Remaining Work
+
+  - [ ] Improve live-turn UX parity with classic CLI/TUI for tool-heavy and long-running prompts
+  - [ ] Investigate whether Hermes can expose truly incremental assistant `message.delta` events
+  - [ ] Slash-command parity with Hermes CLI/TUI behavior
+  - [ ] Better stale-event handling and reload recovery across long-lived browser sessions
+  - [ ] Auto-title generation for new sessions
+  - [ ] Session search/filtering improvements
+  - [ ] Better error handling and retry logic
+  - [ ] Mobile responsive layout (currently hides sidebar on small screens)
+  - [ ] Session deletion functionality
+  - [ ] Export/import chat transcripts
+  - [ ] Wiki document editing interface
+  - [ ] Performance optimization for large session lists
+  - [ ] Comprehensive test coverage
+
+  ### Tech Stack
+
+  - **Frontend**: Vite + React 18 + TypeScript
+  - **Backend**: Python 3.10+ with FastAPI and direct Hermes runtime integration
+  - **Styling**: Custom CSS with CSS variables for theming
+  - **State**: React hooks with session-scoped runtime state in the browser
+  - **Storage**: Hermes SessionDB (~/.hermes/state.db), local file system for wiki
+  - **Communication**: REST API + WebSocket for real-time events
