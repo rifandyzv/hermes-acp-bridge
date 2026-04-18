@@ -25,6 +25,7 @@ class CreateSessionRequest(BaseModel):
 
 class PromptRequest(BaseModel):
     text: str = Field(min_length=1)
+    mode: str = "interrupt"
 
 
 class TitleRequest(BaseModel):
@@ -37,6 +38,10 @@ class ModelRequest(BaseModel):
 
 class ApprovalDecisionRequest(BaseModel):
     decision: str
+
+
+class PromptResponseRequest(BaseModel):
+    response: str
 
 
 class WikiSearchRequest(BaseModel):
@@ -103,6 +108,19 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(exc))
         return {"run_id": run_id, "session_id": session_id}
 
+    @app.post("/api/sessions/{session_id}/input")
+    async def input_message(session_id: str, request: PromptRequest) -> dict[str, Any]:
+        try:
+            return await bridge.submit_input(
+                session_id,
+                request.text,
+                mode=request.mode,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
     @app.post("/api/sessions/{session_id}/cancel")
     async def cancel(session_id: str) -> dict[str, Any]:
         await bridge.cancel_session(session_id)
@@ -131,6 +149,16 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
         except KeyError:
             raise HTTPException(status_code=404, detail="Approval not found")
         return {"approval_id": approval_id, "status": "resolved"}
+
+    @app.post("/api/prompt-requests/{request_id}/respond")
+    async def respond_to_prompt_request(
+        request_id: str, request: PromptResponseRequest
+    ) -> dict[str, Any]:
+        try:
+            await bridge.respond_to_prompt_request(request_id, request.response)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Prompt request not found")
+        return {"request_id": request_id, "status": "resolved"}
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

@@ -9,7 +9,7 @@ def test_list_sessions_reads_cwd_from_model_config(tmp_path: Path):
     db = SessionDB(tmp_path / "state.db")
     db.create_session(
         session_id="abc",
-        source="acp",
+        source="workspace",
         model="test-model",
         model_config={"cwd": "/tmp/project"},
     )
@@ -23,7 +23,7 @@ def test_get_session_returns_messages(tmp_path: Path):
     db = SessionDB(tmp_path / "state.db")
     db.create_session(
         session_id="abc",
-        source="acp",
+        source="workspace",
         model="test-model",
         model_config={"cwd": "/tmp/project"},
     )
@@ -34,3 +34,22 @@ def test_get_session_returns_messages(tmp_path: Path):
 
     assert session is not None
     assert session["messages"][0]["content"] == "hello"
+
+
+def test_fork_session_copies_history(tmp_path: Path):
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session(
+        session_id="source",
+        source="workspace",
+        model="test-model",
+        model_config={"cwd": "/tmp/project"},
+    )
+    db.append_message(session_id="source", role="user", content="hello")
+    db.append_message(session_id="source", role="assistant", content="world")
+
+    store = SessionStore(default_cwd="/fallback", db=db)
+    forked = store.fork_session("source", new_session_id="forked")
+
+    assert forked["session_id"] == "forked"
+    assert len(forked["messages"]) == 2
+    assert forked["messages"][1]["content"] == "world"

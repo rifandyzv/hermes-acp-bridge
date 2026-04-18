@@ -11,10 +11,27 @@ export type SessionSummary = {
 };
 
 export type SessionMessage = {
+  id?: number;
   role: string;
   content: string;
   tool_call_id?: string;
+  tool_calls?: Array<{
+    id?: string;
+    type?: string;
+    function?: {
+      name?: string;
+      arguments?: string;
+    };
+    name?: string;
+    arguments?: string;
+  }>;
   tool_name?: string;
+  timestamp?: number | null;
+  timestamp_iso?: string | null;
+  finish_reason?: string | null;
+  reasoning?: string | null;
+  reasoning_details?: unknown;
+  codex_reasoning_items?: unknown;
 };
 
 export type SessionDetail = {
@@ -32,33 +49,99 @@ export type BridgeEvent = {
   type?: string;
   session_id?: string;
   run_id?: string;
+  turn_id?: number;
   text?: string;
-  title?: string;
   status?: string;
+  kind?: string;
   message?: string;
   bridge_state?: string;
-  commands?: Array<{ name: string; description?: string }>;
-  approval_id?: string;
-  tool_call?: Record<string, unknown>;
-  options?: Array<Record<string, unknown>>;
-  payload?: Record<string, unknown>;
-  error?: string;
-};
-
-export type ApprovalState = {
-  approvalId: string;
-  sessionId: string;
-  toolCall: Record<string, unknown>;
-  options: Array<Record<string, unknown>>;
-};
-
-export type ToolEvent = {
-  id: string;
-  type: "tool.started" | "tool.completed";
+  prompt?: string;
   title?: string;
-  text?: string;
-  timestamp: number;
-  success?: boolean;
+  cwd?: string;
+  model?: string;
+  usage?: Record<string, unknown>;
+  tool_id?: string;
+  name?: string;
+  context?: string;
+  preview?: string;
+  summary?: string;
+  duration_s?: number;
+  inline_diff?: string;
+  raw_result?: string;
+  error?: string;
+  reasoning?: string;
+  request_id?: string;
+  command?: string;
+  description?: string;
+  question?: string;
+  choices?: string[] | null;
+  env_var?: string;
+  metadata?: Record<string, unknown>;
+  pattern_keys?: string[];
+  already_streamed?: boolean;
+};
+
+export type LiveTool = {
+  toolId: string;
+  name: string;
+  context: string;
+  preview: string;
+  summary?: string;
+  durationS?: number;
+  inlineDiff?: string;
+  rawResult?: string;
+  error?: string;
+  status: "running" | "complete";
+};
+
+export type LiveTurn = {
+  runId: string;
+  turnId: number;
+  userText: string;
+  statusText: string;
+  statusKind?: string;
+  thinking: string;
+  reasoning: string;
+  assistant: string;
+  interim: string[];
+  tools: LiveTool[];
+};
+
+export type PromptRequestState =
+  | {
+      kind: "approval";
+      requestId: string;
+      sessionId: string;
+      command: string;
+      description: string;
+      patternKeys: string[];
+    }
+  | {
+      kind: "clarify";
+      requestId: string;
+      sessionId: string;
+      question: string;
+      choices: string[];
+    }
+  | {
+      kind: "sudo";
+      requestId: string;
+      sessionId: string;
+    }
+  | {
+      kind: "secret";
+      requestId: string;
+      sessionId: string;
+      envVar: string;
+      prompt: string;
+    };
+
+export type InputResponse = {
+  session_id: string;
+  status: "started" | "queued";
+  queued: boolean;
+  run_id: string;
+  turn_id: number;
 };
 
 export type WikiDocument = {

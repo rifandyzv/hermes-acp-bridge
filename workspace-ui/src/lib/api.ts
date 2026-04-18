@@ -1,4 +1,4 @@
-import type { SessionDetail, SessionSummary, WikiDocument, WikiDocumentDetail } from "../types";
+import type { InputResponse, SessionDetail, SessionSummary, WikiDocument, WikiDocumentDetail } from "../types";
 
 const bridgeOrigin = import.meta.env.VITE_BRIDGE_ORIGIN ?? "";
 const bridgeWsOrigin =
@@ -73,6 +73,19 @@ export async function promptSession(sessionId: string, text: string): Promise<{ 
   return readJson(response);
 }
 
+export async function submitInput(
+  sessionId: string,
+  text: string,
+  mode: "interrupt" | "queue" | "new_turn" = "interrupt",
+): Promise<InputResponse> {
+  const response = await fetch(makeUrl(`/api/sessions/${sessionId}/input`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, mode }),
+  });
+  return readJson(response);
+}
+
 export async function cancelSession(sessionId: string): Promise<void> {
   const response = await fetch(makeUrl(`/api/sessions/${sessionId}/cancel`), {
     method: "POST",
@@ -106,6 +119,18 @@ export async function resolveApproval(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ decision }),
+  });
+  await readJson(response);
+}
+
+export async function respondToPromptRequest(
+  requestId: string,
+  responseText: string,
+): Promise<void> {
+  const response = await fetch(makeUrl(`/api/prompt-requests/${requestId}/respond`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response: responseText }),
   });
   await readJson(response);
 }

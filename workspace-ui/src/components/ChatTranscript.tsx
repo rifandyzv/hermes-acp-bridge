@@ -2,13 +2,12 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import type { SessionMessage, ToolEvent } from "../types";
+
+import type { LiveTool, LiveTurn, SessionMessage } from "../types";
 
 type ChatTranscriptProps = {
   messages: SessionMessage[];
-  pendingAssistant: string;
-  pendingThinking: string;
-  toolEvents: ToolEvent[];
+  liveTurn: LiveTurn | null;
 };
 
 const codeLanguages: Record<string, string[]> = {
@@ -57,11 +56,7 @@ function MarkdownContent({ content }: { content: string }) {
               );
             }
 
-            return (
-              <code className={className}>
-                {children}
-              </code>
-            );
+            return <code className={className}>{children}</code>;
           },
         }}
       >
@@ -71,7 +66,7 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function ThinkingBubble({ text }: { text: string }) {
+function InsightPanel({ label, text }: { label: string; text: string }) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (!text.trim()) return null;
@@ -80,7 +75,7 @@ function ThinkingBubble({ text }: { text: string }) {
     <div className="thinking-bubble">
       <button
         className="thinking-bubble__header"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => setCollapsed((value) => !value)}
         type="button"
       >
         <span className="thinking-bubble__icon">
@@ -88,140 +83,93 @@ function ThinkingBubble({ text }: { text: string }) {
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </span>
-        <span className="thinking-bubble__label">Thinking</span>
+        <span className="thinking-bubble__label">{label}</span>
         <span className="thinking-bubble__toggle">{collapsed ? "▸" : "▾"}</span>
       </button>
-      {!collapsed && (
-        <div className="thinking-bubble__content streaming-cursor">
-          {text}
+      {!collapsed ? (
+        <div className="thinking-bubble__content">
+          <MarkdownContent content={text} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-function ToolChipGroup({ tools }: { tools: ToolEvent[] }) {
+function ToolGroup({ tools }: { tools: LiveTool[] }) {
   const [expanded, setExpanded] = useState(false);
 
   if (tools.length === 0) return null;
 
-  const completedCount = tools.filter((t) => t.type === "tool.completed").length;
-  const runningCount = tools.filter((t) => t.type === "tool.started" && !tools.some(
-    (c) => c.type === "tool.completed" && c.title === t.title
-  )).length;
-
-  const toolMap = new Map<string, { name: string; status: "running" | "success" }>();
-  for (const tool of tools) {
-    const name = tool.title || "tool";
-    if (tool.type === "tool.started" && !toolMap.has(name)) {
-      toolMap.set(name, { name, status: "running" });
-    }
-    if (tool.type === "tool.completed") {
-      toolMap.set(name, { name, status: "success" });
-    }
-  }
+  const runningCount = tools.filter((tool) => tool.status === "running").length;
+  const completedCount = tools.filter((tool) => tool.status === "complete").length;
 
   return (
-    <button
-      className={`tool-chip${expanded ? " tool-chip--expanded" : ""}`}
-      onClick={() => tools.length > 0 && setExpanded(!expanded)}
-      type="button"
-    >
-      <span className="tool-chip__icon">
-        {runningCount > 0 ? "⚡" : "✓"}
-      </span>
-      <span className="tool-chip__label">
-        {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool{tools.length !== 1 ? "s" : ""}
-      </span>
-      {tools.length > 1 && !expanded && (
+    <div className={`tool-chip${expanded ? " tool-chip--expanded" : ""}`}>
+      <button className="tool-chip__header" onClick={() => setExpanded((value) => !value)} type="button">
+        <span className="tool-chip__icon">{runningCount > 0 ? "⚡" : "✓"}</span>
+        <span className="tool-chip__label">
+          {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool{tools.length !== 1 ? "s" : ""}
+        </span>
         <span className="tool-chip__count">{tools.length}</span>
-      )}
-
-      {expanded && (
-        <div className="tool-chip__list">
-          {Array.from(toolMap.values()).map((tool) => (
-            <div className="tool-chip__item" key={tool.name}>
-              <span className={`tool-chip__status tool-chip__status--${tool.status}`}>
-                {tool.status === "success" ? "✓" : "…"}
+      </button>
+      <div className="tool-chip__list">
+        {(expanded ? tools : tools.slice(Math.max(0, tools.length - 3))).map((tool) => (
+          <div className="tool-chip__item tool-chip__item--card" key={tool.toolId}>
+            <div className="tool-chip__item-header">
+              <span className={`tool-chip__status tool-chip__status--${tool.status === "complete" ? "success" : "running"}`}>
+                {tool.status === "complete" ? "✓" : "…"}
               </span>
-              <span>{tool.name}</span>
+              <span className="tool-chip__item-title">{tool.name}</span>
+              {tool.durationS ? <span className="tool-chip__meta">{tool.durationS.toFixed(1)}s</span> : null}
             </div>
-          ))}
-        </div>
-      )}
-    </button>
+            {tool.context ? <div className="tool-chip__meta">{tool.context}</div> : null}
+            {tool.preview ? <div className="tool-chip__body">{tool.preview}</div> : null}
+            {tool.summary ? <div className="tool-chip__body">{tool.summary}</div> : null}
+            {tool.inlineDiff ? (
+              <div className="tool-chip__body">
+                <MarkdownContent content={`\`\`\`diff\n${tool.inlineDiff}\n\`\`\``} />
+              </div>
+            ) : null}
+            {tool.rawResult ? (
+              <div className="tool-chip__body">
+                <MarkdownContent content={`\`\`\`\n${tool.rawResult}\n\`\`\``} />
+              </div>
+            ) : null}
+            {tool.error ? <div className="tool-chip__body">{tool.error}</div> : null}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function isToolArtifact(content: string): boolean {
-  const trimmed = content.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (typeof parsed === "object" && parsed !== null) {
-        const keys = Object.keys(parsed);
-        const toolKeys = ["success", "results", "data", "tool_call", "tool_name", "arguments", "output", "error", "status"];
-        if (keys.some((k) => toolKeys.includes(k))) return true;
-      }
-    } catch {
-      // not valid JSON
-    }
-  }
-  return false;
-}
-
-function isToolCallAnnouncement(content: string): boolean {
-  const lower = content.toLowerCase();
-  return (
-    lower.startsWith("called the") ||
-    lower.startsWith("calling the") ||
-    lower.includes("with the following input") ||
-    lower.includes("tool result") ||
-    lower.includes("tool output")
-  );
-}
-
-function extractToolName(content: string): string | null {
-  const match = content.match(/called\s+(?:the\s+)?(\w+)\s+tool/i);
-  if (match) return match[1];
-
-  try {
-    const parsed = JSON.parse(content.trim());
-    if (typeof parsed === "object" && parsed !== null) {
-      if (parsed.tool_name) return String(parsed.tool_name);
-      if (parsed.name) return String(parsed.name);
-    }
-  } catch {
-    // not JSON
-  }
-  return null;
-}
-
-function MessageBubble({ message }: { message: SessionMessage }) {
+function MessageBubble({ message, pending = false }: { message: SessionMessage; pending?: boolean }) {
   const isUser = message.role === "user";
-  const roleLabel = isUser ? "You" : "Hermes";
-  const avatarLabel = isUser ? "U" : "H";
+  const isSystem = message.role === "system";
+  const roleLabel = isUser ? "You" : isSystem ? "System" : "Hermes";
+  const avatarLabel = isUser ? "U" : isSystem ? "S" : "H";
+  const visibleContent = (message.content || "").trim();
 
-  if (message.tool_name) return null;
+  if (!visibleContent) return null;
   if (message.role === "tool" || message.role === "function") return null;
-  if (isToolArtifact(message.content)) return null;
-  if (isToolCallAnnouncement(message.content)) return null;
 
   return (
-    <article className={`message message--${isUser ? "user" : "assistant"}`}>
+    <article className={`message message--${isUser ? "user" : "assistant"}${pending ? " message--pending" : ""}`}>
       <header className="message__header">
-        {!isUser && <span className="message__avatar">{avatarLabel}</span>}
+        {!isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
         <span>{roleLabel}</span>
-        {isUser && <span className="message__avatar">{avatarLabel}</span>}
+        {isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
       </header>
       <div className="message__body">
-        <MarkdownContent content={message.content} />
+        <MarkdownContent content={visibleContent} />
       </div>
     </article>
   );
 }
 
 function StreamingBubble({ text }: { text: string }) {
+  if (!text.trim()) return null;
+
   return (
     <article className="message message--assistant message--streaming">
       <header className="message__header">
@@ -237,8 +185,40 @@ function StreamingBubble({ text }: { text: string }) {
   );
 }
 
-export function ChatTranscript({ messages, pendingAssistant, pendingThinking, toolEvents }: ChatTranscriptProps) {
-  const hasContent = messages.length > 0 || pendingAssistant || pendingThinking;
+function assistantToolCalls(message: SessionMessage): LiveTool[] {
+  const calls = message.tool_calls ?? [];
+  return calls.map((toolCall, index) => ({
+    toolId: toolCall.id || message.tool_call_id || `tool-${message.id ?? index}`,
+    name: toolCall.function?.name || toolCall.name || "tool",
+    context: toolCall.function?.arguments || toolCall.arguments || "",
+    preview: "",
+    status: "running",
+  }));
+}
+
+function mergeToolCompletion(buffer: LiveTool[], message: SessionMessage): LiveTool[] {
+  const toolId = message.tool_call_id || `tool-msg-${message.id ?? Math.random()}`;
+  const index = buffer.findIndex((tool) => tool.toolId === toolId);
+  const completeTool: LiveTool = {
+    toolId,
+    name: message.tool_name || buffer[index]?.name || "tool",
+    context: buffer[index]?.context || "",
+    preview: "",
+    rawResult: message.content || "",
+    status: "complete",
+  };
+
+  if (index === -1) {
+    return [...buffer, completeTool];
+  }
+
+  const next = [...buffer];
+  next[index] = { ...next[index], ...completeTool };
+  return next;
+}
+
+export function ChatTranscript({ messages, liveTurn }: ChatTranscriptProps) {
+  const hasContent = messages.length > 0 || liveTurn !== null;
 
   if (!hasContent) {
     return (
@@ -254,51 +234,32 @@ export function ChatTranscript({ messages, pendingAssistant, pendingThinking, to
     );
   }
 
-  const elements: React.ReactNode[] = [];
-  let pendingTools: ToolEvent[] = [];
+  const elements: JSX.Element[] = [];
+  let pendingTools: LiveTool[] = [];
   let keyCounter = 0;
 
   for (const message of messages) {
-    if (message.tool_name) {
-      pendingTools.push({
-        id: message.tool_call_id || `tool-${keyCounter}`,
-        type: "tool.started",
-        title: message.tool_name,
-        text: message.content,
-        timestamp: Date.now(),
-      });
-      continue;
+    if (message.role === "assistant" && message.reasoning) {
+      elements.push(
+        <InsightPanel key={`reasoning-${keyCounter++}`} label="Reasoning" text={message.reasoning} />
+      );
     }
 
-    if (isToolArtifact(message.content) || isToolCallAnnouncement(message.content)) {
-      const toolName = extractToolName(message.content);
-      if (toolName) {
-        pendingTools.push({
-          id: `tool-${keyCounter}`,
-          type: "tool.completed",
-          title: toolName,
-          text: message.content,
-          timestamp: Date.now(),
-          success: true,
-        });
+    if (message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0) {
+      if ((message.content || "").trim()) {
+        elements.push(<MessageBubble key={`msg-${keyCounter++}`} message={message} />);
       }
+      pendingTools = [...pendingTools, ...assistantToolCalls(message)];
       continue;
     }
 
     if (message.role === "tool" || message.role === "function") {
-      pendingTools.push({
-        id: message.tool_call_id || `tool-${keyCounter}`,
-        type: "tool.completed",
-        title: message.tool_name || "tool",
-        text: message.content,
-        timestamp: Date.now(),
-        success: true,
-      });
+      pendingTools = mergeToolCompletion(pendingTools, message);
       continue;
     }
 
     if (pendingTools.length > 0) {
-      elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
+      elements.push(<ToolGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
       pendingTools = [];
     }
 
@@ -306,24 +267,47 @@ export function ChatTranscript({ messages, pendingAssistant, pendingThinking, to
   }
 
   if (pendingTools.length > 0) {
-    elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
+    elements.push(<ToolGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
   }
 
-  if (pendingAssistant || pendingThinking || toolEvents.length > 0) {
-    if (pendingThinking) {
-      elements.push(<ThinkingBubble key="thinking" text={pendingThinking} />);
+  if (liveTurn) {
+    elements.push(
+      <MessageBubble
+        key={`live-user-${liveTurn.runId}`}
+        message={{ role: "user", content: liveTurn.userText }}
+        pending
+      />
+    );
+    if (liveTurn.statusText && liveTurn.statusText !== "Running") {
+      elements.push(
+        <InsightPanel key={`status-${liveTurn.runId}`} label="Status" text={liveTurn.statusText} />
+      );
     }
-    if (toolEvents.length > 0) {
-      elements.push(<ToolChipGroup key={`tools-live-${keyCounter++}`} tools={toolEvents} />);
+    if (liveTurn.thinking) {
+      elements.push(
+        <InsightPanel key={`thinking-${liveTurn.runId}`} label="Thinking" text={liveTurn.thinking} />
+      );
     }
-    if (pendingAssistant) {
-      elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
+    if (liveTurn.reasoning) {
+      elements.push(
+        <InsightPanel key={`live-reasoning-${liveTurn.runId}`} label="Reasoning" text={liveTurn.reasoning} />
+      );
+    }
+    liveTurn.interim.forEach((text, index) => {
+      elements.push(
+        <MessageBubble
+          key={`interim-${liveTurn.runId}-${index}`}
+          message={{ role: "assistant", content: text }}
+        />
+      );
+    });
+    if (liveTurn.tools.length > 0) {
+      elements.push(<ToolGroup key={`live-tools-${liveTurn.runId}`} tools={liveTurn.tools} />);
+    }
+    if (liveTurn.assistant) {
+      elements.push(<StreamingBubble key={`stream-${liveTurn.runId}`} text={liveTurn.assistant} />);
     }
   }
 
-  return (
-    <div className="transcript">
-      {elements}
-    </div>
-  );
+  return <div className="transcript">{elements}</div>;
 }

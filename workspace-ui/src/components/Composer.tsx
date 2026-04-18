@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 type ComposerProps = {
   disabled: boolean;
+  isRunning?: boolean;
   onSubmit: (text: string) => Promise<void>;
 };
 
-export function Composer({ disabled, onSubmit }: ComposerProps) {
+export function Composer({ disabled, isRunning = false, onSubmit }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +46,7 @@ export function Composer({ disabled, onSubmit }: ComposerProps) {
             disabled={disabled}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Hermes anything... Type / for commands"
+            placeholder={isRunning ? "Send another message to interrupt and queue the next turn…" : "Ask Hermes anything…"}
             rows={1}
             value={value}
           />
