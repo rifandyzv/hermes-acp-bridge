@@ -43,6 +43,13 @@ function groupSessions(sessions: SessionSummary[]): GroupedSessions[] {
     }
   }
 
+  for (const group of groups) {
+    group.sessions.sort(
+      (left, right) =>
+        (right.last_active ?? right.started_at ?? 0) - (left.last_active ?? left.started_at ?? 0)
+    );
+  }
+
   return groups.filter((g) => g.sessions.length > 0);
 }
 

@@ -61,7 +61,15 @@ class SessionStore:
             limit=limit,
             offset=offset,
         )
-        return [self._serialize_summary(row) for row in sessions]
+        summaries = [self._serialize_summary(row) for row in sessions]
+        summaries.sort(
+            key=lambda session: (
+                session.get("last_active") or 0,
+                session.get("started_at") or 0,
+            ),
+            reverse=True,
+        )
+        return summaries
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         row = self._db.get_session(session_id)

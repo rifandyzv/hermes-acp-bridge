@@ -19,6 +19,29 @@ def test_list_sessions_reads_cwd_from_model_config(tmp_path: Path):
     assert sessions[0]["cwd"] == "/tmp/project"
 
 
+def test_list_sessions_sorts_by_last_active_desc(tmp_path: Path):
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session(
+        session_id="older",
+        source="workspace",
+        model="test-model",
+        model_config={"cwd": "/tmp/older"},
+    )
+    db.create_session(
+        session_id="newer",
+        source="workspace",
+        model="test-model",
+        model_config={"cwd": "/tmp/newer"},
+    )
+    db.append_message(session_id="older", role="user", content="first")
+    db.append_message(session_id="newer", role="user", content="second")
+
+    store = SessionStore(default_cwd="/fallback", db=db)
+    sessions = store.list_sessions()
+
+    assert [session["session_id"] for session in sessions[:2]] == ["newer", "older"]
+
+
 def test_get_session_returns_messages(tmp_path: Path):
     db = SessionDB(tmp_path / "state.db")
     db.create_session(
