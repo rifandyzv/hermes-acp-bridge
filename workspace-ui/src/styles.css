@@ -2464,3 +2464,198 @@ button {
   gap: 8px;
   justify-content: flex-end;
 }
+
+/* ===== Activity Badges ===== */
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.activity-badge--action {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.activity-badge--risk {
+  background: var(--red-subtle);
+  color: var(--red);
+}
+
+/* ===== Activity Feed Badges ===== */
+.activity-feed__badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ===== Activity Feed Action Summary ===== */
+.activity-feed__action-summary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.activity-feed__action-summary h5 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.activity-feed__action-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-feed__action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--border);
+}
+
+.activity-feed__action-item--completed {
+  opacity: 0.6;
+}
+
+.activity-feed__action-item--completed .activity-feed__action-text {
+  text-decoration: line-through;
+}
+
+.activity-feed__action-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.activity-feed__action-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.activity-feed__action-text {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.activity-feed__risks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.activity-feed__risks-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.activity-feed__risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--red-subtle);
+  color: var(--red);
+}
+
+.activity-feed__risk-badge--medium {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.activity-feed__risk-badge--low {
+  background: rgba(107, 114, 128, 0.15);
+  color: var(--text-secondary);
+}
+
+/* ===== Action Card Accordion ===== */
+.action-card__accordion {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.action-card__accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease;
+  border: none;
+}
+
+.action-card__accordion-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.action-card__accordion-title {
+  font-weight: 600;
+}
+
+.action-card__accordion-counts {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  flex: 1;
+}
+
+.action-card__accordion-chevron {
+  transition: transform 200ms ease;
+  flex-shrink: 0;
+}
+
+.action-card__accordion-chevron--open {
+  transform: rotate(180deg);
+}
+
+.action-card__accordion-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.action-card__accordion-body .action-card__section {
+  margin-bottom: 16px;
+}
+
+.action-card__accordion-body .action-card__section:last-child {
+  margin-bottom: 0;
+}
+
+.action-card__show-all {
+  margin-top: 8px;
+  width: 100%;
+  justify-content: center;
+}

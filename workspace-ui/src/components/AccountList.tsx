@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Account, DealStage } from "../types/pipeline";
+import { AccountModal } from "./AccountModal";
 
 type AccountListProps = {
   accounts: Account[];
@@ -38,8 +39,8 @@ function emptyAccount(): Account {
 
 export function AccountList({ accounts, onChange }: AccountListProps) {
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<Account | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalAccount, setModalAccount] = useState<Account | null>(null);
 
   const filtered = accounts.filter(
     (a) =>
@@ -49,40 +50,33 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
   );
 
   function handleCreate() {
-    const newAccount = emptyAccount();
-    setEditing(newAccount);
-    setShowForm(true);
+    setModalAccount(emptyAccount());
+    setModalOpen(true);
   }
 
   function handleEdit(account: Account) {
-    setEditing({ ...account });
-    setShowForm(true);
+    setModalAccount({ ...account });
+    setModalOpen(true);
   }
 
   function handleDelete(id: string) {
     onChange(accounts.filter((a) => a.id !== id));
   }
 
-  function handleSave() {
-    if (!editing) return;
-    const existing = accounts.find((a) => a.id === editing.id);
+  function handleModalSave(account: Account) {
+    const existing = accounts.find((a) => a.id === account.id);
     if (existing) {
-      onChange(accounts.map((a) => (a.id === editing.id ? { ...editing, updated_at: new Date().toISOString() } : a)));
+      onChange(accounts.map((a) => (a.id === account.id ? { ...account, updated_at: new Date().toISOString() } : a)));
     } else {
-      onChange([...accounts, editing]);
+      onChange([...accounts, account]);
     }
-    setEditing(null);
-    setShowForm(false);
+    setModalOpen(false);
+    setModalAccount(null);
   }
 
-  function handleCancel() {
-    setEditing(null);
-    setShowForm(false);
-  }
-
-  function updateField<K extends keyof Account>(key: K, value: Account[K]) {
-    if (!editing) return;
-    setEditing({ ...editing, [key]: value });
+  function handleModalClose() {
+    setModalOpen(false);
+    setModalAccount(null);
   }
 
   function stageLabel(stage: DealStage): string {
@@ -109,130 +103,6 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
           </button>
         </div>
       </div>
-
-      {showForm && editing && (
-        <div className="account-list__form">
-          <h4>{accounts.find((a) => a.id === editing.id) ? "Edit Account" : "New Account"}</h4>
-          <div className="account-list__form-grid">
-            <label>
-              <span>Company Name *</span>
-              <input
-                type="text"
-                value={editing.name}
-                onChange={(e) => updateField("name", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Industry</span>
-              <input
-                type="text"
-                value={editing.industry}
-                onChange={(e) => updateField("industry", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Deal Value</span>
-              <input
-                type="number"
-                value={editing.deal_value}
-                onChange={(e) => updateField("deal_value", Number(e.target.value))}
-              />
-            </label>
-            <label>
-              <span>Currency</span>
-              <input
-                type="text"
-                value={editing.currency}
-                onChange={(e) => updateField("currency", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Probability (%)</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={editing.probability}
-                onChange={(e) => updateField("probability", Number(e.target.value))}
-              />
-            </label>
-            <label>
-              <span>Stage</span>
-              <select
-                value={editing.stage}
-                onChange={(e) => updateField("stage", e.target.value as DealStage)}
-              >
-                {defaultStages.map((s) => (
-                  <option key={s} value={s}>
-                    {stageLabel(s)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Close Date</span>
-              <input
-                type="date"
-                value={editing.close_date ?? ""}
-                onChange={(e) => updateField("close_date", e.target.value || null)}
-              />
-            </label>
-            <label>
-              <span>Champion</span>
-              <input
-                type="text"
-                value={editing.champion}
-                onChange={(e) => updateField("champion", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Economic Buyer</span>
-              <input
-                type="text"
-                value={editing.economic_buyer}
-                onChange={(e) => updateField("economic_buyer", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Next Step Date</span>
-              <input
-                type="date"
-                value={editing.next_step_date ?? ""}
-                onChange={(e) => updateField("next_step_date", e.target.value || null)}
-              />
-            </label>
-          </div>
-          <label className="account-list__form-full">
-            <span>Description</span>
-            <textarea
-              rows={2}
-              value={editing.description}
-              onChange={(e) => updateField("description", e.target.value)}
-            />
-          </label>
-          <label className="account-list__form-full">
-            <span>Next Step</span>
-            <input
-              type="text"
-              value={editing.next_step}
-              onChange={(e) => updateField("next_step", e.target.value)}
-            />
-          </label>
-          <div className="account-list__form-actions">
-            <button className="btn btn--ghost" onClick={handleCancel} type="button">
-              Cancel
-            </button>
-            <button
-              className="btn btn--primary"
-              disabled={!editing.name.trim()}
-              onClick={handleSave}
-              type="button"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      )}
 
       <table className="account-list__table">
         <thead>
@@ -316,6 +186,15 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
           ))}
         </tbody>
       </table>
+
+      {modalOpen && modalAccount && (
+        <AccountModal
+          account={modalAccount}
+          isNew={!accounts.find((a) => a.id === modalAccount.id)}
+          onClose={handleModalClose}
+          onSave={handleModalSave}
+        />
+      )}
     </div>
   );
 }

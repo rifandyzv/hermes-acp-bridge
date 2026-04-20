@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { ActionCard } from "./ActionCard";
 import { ActivityLogModal } from "./ActivityLogModal";
 import type { Account, ActionCard as ActionCardType, Activity, ActivityType } from "../types/pipeline";
 
@@ -52,16 +51,23 @@ export function ActivityFeed({
       recommendations: {
         immediate_actions: [
           {
-            text: "Follow up on key discussion points from this meeting",
+            text: "Ask who owns procurement approval -- champion mentioned legal review but no procurement contact",
             priority: "high",
-            rationale: "Maintain momentum and address open questions",
+            rationale: "Cannot advance to proposal without knowing approval chain",
             deadline: null,
             completed: false,
           },
           {
-            text: "Schedule next meeting with decision makers",
+            text: "Confirm target go-live quarter before next call -- buyer asked about deployment readiness",
             priority: "medium",
-            rationale: "Keep the deal moving forward in the pipeline",
+            rationale: "Q3 budget cycle closes in 3 weeks",
+            deadline: null,
+            completed: false,
+          },
+          {
+            text: "Get current infrastructure cost baseline from IT for ROI calculation",
+            priority: "medium",
+            rationale: "Finance team requires quantified savings estimate",
             deadline: null,
             completed: false,
           },
@@ -70,32 +76,32 @@ export function ActivityFeed({
           {
             element: "Metrics",
             status: "Needs Discovery",
-            next_step: "Identify quantifiable ROI metrics with the champion",
+            next_step: "Get current infrastructure cost baseline from IT for ROI calculation",
           },
           {
             element: "Decision Process",
             status: "Unknown",
-            next_step: "Map the formal procurement process",
+            next_step: "Legal mentioned 3-week vendor review; map exact approval steps",
           },
         ],
         stakeholder_actions: [
           {
-            stakeholder: activity.account_name + " Champion",
+            stakeholder: activity.account_name + " CTO",
             role: "Champion",
-            action: "Equip with internal selling materials",
-            framing: "Provide ROI comparison against current solution",
+            action: "Share AWS architecture reference from similar public sector client",
+            framing: "Prepare TCO comparison vs. on-premise licensing",
           },
         ],
         next_meeting_agenda: [
-          "Review technical requirements",
-          "Discuss implementation timeline",
-          "Identify additional stakeholders",
+          "Confirm data residency requirements for sovereign cloud",
+          "Get security review checklist and timeline from InfoSec",
+          "Introduce to procurement lead before proposal stage",
         ],
         risk_flags: [
           {
-            flag: "Competitor may be evaluating",
+            flag: "Budget freeze rumored for Q3",
             severity: "medium",
-            mitigation: "Differentiate on unique value proposition",
+            mitigation: "Verify with finance contact by Friday; accelerate timeline if true",
           },
         ],
       },
@@ -207,12 +213,24 @@ export function ActivityFeed({
                   <div className="activity-feed__item-info">
                     <span className="activity-feed__item-type">{activity.type}</span>
                     <span className="activity-feed__item-account">{activity.account_name}</span>
+                    {associatedCard && (
+                      <div className="activity-feed__badges">
+                        {associatedCard.recommendations.immediate_actions.filter((a) => !a.completed).length > 0 && (
+                          <span className="activity-badge activity-badge--action">
+                            {associatedCard.recommendations.immediate_actions.filter((a) => !a.completed).length} actions
+                          </span>
+                        )}
+                        {associatedCard.recommendations.risk_flags.length > 0 && (
+                          <span className="activity-badge activity-badge--risk">
+                            {associatedCard.recommendations.risk_flags.length} risk
+                            {associatedCard.recommendations.risk_flags.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="activity-feed__item-date">{activity.date}</div>
                   <div className="activity-feed__item-actions">
-                    {activity.analyzed && (
-                      <span className="activity-feed__analyzed-badge">Analyzed</span>
-                    )}
                     {!activity.analyzed && (
                       <button
                         className="btn btn--accent btn--small"
@@ -248,15 +266,49 @@ export function ActivityFeed({
                     <p className="activity-feed__brief">{activity.brief}</p>
 
                     {associatedCard && (
-                      <div className="activity-feed__card">
-                        <ActionCard
-                          card={associatedCard}
-                          onChange={(updated) => {
-                            onActionCardsChange(
-                              actionCards.map((c) => (c.id === updated.id ? updated : c))
-                            );
-                          }}
-                        />
+                      <div className="activity-feed__action-summary">
+                        <h5>Actions from this activity</h5>
+                        <ul className="activity-feed__action-list">
+                          {associatedCard.recommendations.immediate_actions.slice(0, 3).map((action, i) => (
+                            <li
+                              key={i}
+                              className={`activity-feed__action-item${action.completed ? " activity-feed__action-item--completed" : ""}`}
+                            >
+                              <label className="activity-feed__action-checkbox">
+                                <input
+                                  checked={action.completed}
+                                  onChange={() => {
+                                    const updatedCard = { ...associatedCard };
+                                    updatedCard.recommendations = {
+                                      ...updatedCard.recommendations,
+                                      immediate_actions: [...updatedCard.recommendations.immediate_actions],
+                                    };
+                                    updatedCard.recommendations.immediate_actions[i] = {
+                                      ...action,
+                                      completed: !action.completed,
+                                    };
+                                    onActionCardsChange(
+                                      actionCards.map((c) => (c.id === updatedCard.id ? updatedCard : c))
+                                    );
+                                  }}
+                                  type="checkbox"
+                                />
+                                <span className="activity-feed__action-text">{action.text}</span>
+                              </label>
+                            </li>
+                          ))}
+                        </ul>
+
+                        {associatedCard.recommendations.risk_flags.length > 0 && (
+                          <div className="activity-feed__risks">
+                            <span className="activity-feed__risks-label">Risks detected:</span>
+                            {associatedCard.recommendations.risk_flags.map((risk, i) => (
+                              <span key={i} className={`activity-feed__risk-badge activity-feed__risk-badge--${risk.severity}`}>
+                                {risk.flag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
