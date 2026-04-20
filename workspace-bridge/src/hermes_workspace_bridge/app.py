@@ -10,6 +10,20 @@ from starlette.responses import StreamingResponse
 
 from .acp_bridge import ACPBridgeService
 from .config import BridgeConfig
+from .pipeline_manager import (
+    create_account,
+    create_action_card,
+    create_activity,
+    delete_account,
+    delete_activity,
+    list_accounts,
+    list_action_cards,
+    list_activities,
+    load_data,
+    update_account,
+    update_action_card,
+    update_activity,
+)
 from .wiki_manager import (
     get_document,
     get_wiki_index,
@@ -46,6 +60,51 @@ class PromptResponseRequest(BaseModel):
 
 class WikiSearchRequest(BaseModel):
     query: str = Field(min_length=1)
+
+
+class CreateAccountRequest(BaseModel):
+    name: str = Field(min_length=1)
+    industry: str = ""
+    description: str = ""
+    deal_value: float = 0
+    currency: str = "USD"
+    probability: float = 0
+    stage: str = "prospecting"
+    close_date: str | None = None
+    champion: str = ""
+    economic_buyer: str = ""
+    next_step: str = ""
+    next_step_date: str | None = None
+
+
+class UpdateAccountRequest(BaseModel):
+    name: str | None = None
+    industry: str | None = None
+    description: str | None = None
+    deal_value: float | None = None
+    currency: str | None = None
+    probability: float | None = None
+    stage: str | None = None
+    close_date: str | None = None
+    champion: str | None = None
+    economic_buyer: str | None = None
+    next_step: str | None = None
+    next_step_date: str | None = None
+
+
+class CreateActivityRequest(BaseModel):
+    account_id: str = Field(min_length=1)
+    account_name: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    brief: str = Field(min_length=1)
+    date: str
+    analyzed: bool = False
+    action_card_id: str | None = None
+
+
+class UpdateActionCardRequest(BaseModel):
+    status: str | None = None
+    recommendations: dict[str, Any] | None = None
 
 
 def create_app(config: BridgeConfig | None = None) -> FastAPI:
@@ -204,5 +263,75 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
     @app.get("/api/wiki/index")
     async def wiki_index() -> dict[str, str]:
         return {"content": get_wiki_index()}
+
+    # -- Pipeline API endpoints --
+
+    @app.get("/api/pipeline/data")
+    async def pipeline_get_data() -> dict[str, Any]:
+        return load_data()
+
+    @app.post("/api/pipeline/accounts")
+    async def pipeline_create_account(request: CreateAccountRequest) -> dict[str, Any]:
+        return create_account(
+            name=request.name,
+            industry=request.industry,
+            description=request.description,
+            deal_value=request.deal_value,
+            currency=request.currency,
+            probability=request.probability,
+            stage=request.stage,
+            close_date=request.close_date,
+            champion=request.champion,
+            economic_buyer=request.economic_buyer,
+            next_step=request.next_step,
+            next_step_date=request.next_step_date,
+        )
+
+    @app.put("/api/pipeline/accounts/{account_id}")
+    async def pipeline_update_account(account_id: str, request: UpdateAccountRequest) -> dict[str, Any]:
+        updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        result = update_account(account_id, updates)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Account not found")
+        return result
+
+    @app.delete("/api/pipeline/accounts/{account_id}")
+    async def pipeline_delete_account(account_id: str) -> dict[str, Any]:
+        if not delete_account(account_id):
+            raise HTTPException(status_code=404, detail="Account not found")
+        return {"id": account_id, "status": "deleted"}
+
+    @app.post("/api/pipeline/activities")
+    async def pipeline_create_activity(request: CreateActivityRequest) -> dict[str, Any]:
+        return create_activity(
+            account_id=request.account_id,
+            account_name=request.account_name,
+            activity_type=request.type,
+            brief=request.brief,
+            date=request.date,
+            analyzed=request.analyzed,
+            action_card_id=request.action_card_id,
+        )
+
+    @app.put("/api/pipeline/activities/{activity_id}/analyze")
+    async def pipeline_analyze_activity(activity_id: str) -> dict[str, Any]:
+        # Phase 3 placeholder
+        raise HTTPException(status_code=501, detail="Hermes analysis not yet implemented (Phase 3)")
+
+    @app.get("/api/pipeline/action-cards")
+    async def pipeline_list_action_cards() -> list[dict[str, Any]]:
+        return list_action_cards()
+
+    @app.put("/api/pipeline/action-cards/{card_id}")
+    async def pipeline_update_action_card(card_id: str, request: UpdateActionCardRequest) -> dict[str, Any]:
+        updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        result = update_action_card(card_id, updates)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Action card not found")
+        return result
 
     return app

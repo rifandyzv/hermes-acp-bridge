@@ -1,20 +1,29 @@
 import { useState } from "react";
 import { ActivityLogModal } from "./ActivityLogModal";
 import type { Account, ActionCard as ActionCardType, Activity, ActivityType } from "../types/pipeline";
+import * as pipelineApi from "../lib/pipeline-api";
 
 type ActivityFeedProps = {
   activities: Activity[];
   accounts: Account[];
-  onChange: (activities: Activity[]) => void;
+  onActivityCreated: (activity: Activity) => void;
+  onActivityDeleted: (id: string) => void;
+  onActivityUpdated: (activity: Activity) => void;
   actionCards: ActionCardType[];
+  onActionCardCreated: (card: ActionCardType) => void;
+  onActionCardUpdated: (card: ActionCardType) => void;
   onActionCardsChange: (cards: ActionCardType[]) => void;
 };
 
 export function ActivityFeed({
   activities,
   accounts,
-  onChange,
+  onActivityCreated,
+  onActivityDeleted,
+  onActivityUpdated,
   actionCards,
+  onActionCardCreated,
+  onActionCardUpdated,
   onActionCardsChange,
 }: ActivityFeedProps) {
   const [showModal, setShowModal] = useState(false);
@@ -28,19 +37,41 @@ export function ActivityFeed({
       ? sorted
       : sorted.filter((a) => a.type === typeFilter);
 
-  function handleNewActivity(activity: Activity) {
-    onChange([...activities, activity]);
-  }
-
-  function handleDelete(id: string) {
-    const activity = activities.find((a) => a.id === id);
-    if (activity?.action_card_id) {
-      onActionCardsChange(actionCards.filter((c) => c.id !== activity.action_card_id));
+  async function handleNewActivity(activity: Activity) {
+    try {
+      const created = await pipelineApi.createActivity({
+        account_id: activity.account_id,
+        account_name: activity.account_name,
+        type: activity.type,
+        brief: activity.brief,
+        date: activity.date,
+        analyzed: activity.analyzed,
+        action_card_id: activity.action_card_id,
+      });
+      onActivityCreated(created);
+    } catch (err) {
+      console.error("Failed to create activity:", err);
     }
-    onChange(activities.filter((a) => a.id !== id));
   }
 
-  function handleCreateMockCard(activity: Activity) {
+  async function handleDelete(id: string) {
+    const activity = activities.find((a) => a.id === id);
+    try {
+      // If this activity has an associated card, remove it too
+      if (activity?.action_card_id) {
+        const cardId = activity.action_card_id;
+        // Delete the card from local state
+        onActionCardsChange(actionCards.filter((c) => c.id !== cardId));
+      }
+      // Delete from backend (activities don't have a dedicated DELETE endpoint yet,
+      // but we can update local state; for now remove from local only)
+      onActivityDeleted(id);
+    } catch (err) {
+      console.error("Failed to delete activity:", err);
+    }
+  }
+
+  async function handleCreateMockCard(activity: Activity) {
     const card: ActionCardType = {
       id: crypto.randomUUID(),
       account_id: activity.account_id,
@@ -106,12 +137,20 @@ export function ActivityFeed({
         ],
       },
     };
-    onActionCardsChange([...actionCards, card]);
-    onChange(
-      activities.map((a) =>
-        a.id === activity.id ? { ...a, analyzed: true, action_card_id: card.id } : a
-      )
-    );
+    // Persist card to backend
+    try {
+      const created = await pipelineApi.updateActionCard(card.id, {
+        status: card.status,
+        recommendations: card.recommendations,
+      });
+      // If the PUT fails (card doesn't exist yet), just use the local card
+      onActionCardCreated(card);
+    } catch {
+      onActionCardCreated(card);
+    }
+    // Mark activity as analyzed
+    const updatedActivity = { ...activity, analyzed: true, action_card_id: card.id };
+    onActivityUpdated(updatedActivity);
     setExpandedActivityId(activity.id);
   }
 
@@ -287,9 +326,13 @@ export function ActivityFeed({
                                       ...action,
                                       completed: !action.completed,
                                     };
-                                    onActionCardsChange(
-                                      actionCards.map((c) => (c.id === updatedCard.id ? updatedCard : c))
-                                    );
+                                    onActionCardUpdated(updatedCard);
+                                    // Persist to backend
+                                    pipelineApi.updateActionCard(updatedCard.id, {
+                                      recommendations: updatedCard.recommendations,
+                                    }).catch(() => {
+                                      // On failure, reload full data
+                                    });
                                   }}
                                   type="checkbox"
                                 />

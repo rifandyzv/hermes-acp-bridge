@@ -1,10 +1,13 @@
 import { useState } from "react";
 import type { Account, DealStage } from "../types/pipeline";
 import { AccountModal } from "./AccountModal";
+import * as pipelineApi from "../lib/pipeline-api";
 
 type AccountListProps = {
   accounts: Account[];
-  onChange: (accounts: Account[]) => void;
+  onAccountCreated: (account: Account) => void;
+  onAccountUpdated: (account: Account) => void;
+  onAccountDeleted: (id: string) => void;
 };
 
 const defaultStages: DealStage[] = [
@@ -37,7 +40,7 @@ function emptyAccount(): Account {
   };
 }
 
-export function AccountList({ accounts, onChange }: AccountListProps) {
+export function AccountList({ accounts, onAccountCreated, onAccountUpdated, onAccountDeleted }: AccountListProps) {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalAccount, setModalAccount] = useState<Account | null>(null);
@@ -59,16 +62,53 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
     setModalOpen(true);
   }
 
-  function handleDelete(id: string) {
-    onChange(accounts.filter((a) => a.id !== id));
+  async function handleDelete(id: string) {
+    try {
+      await pipelineApi.deleteAccount(id);
+      onAccountDeleted(id);
+    } catch (err) {
+      console.error("Failed to delete account:", err);
+    }
   }
 
-  function handleModalSave(account: Account) {
+  async function handleModalSave(account: Account) {
     const existing = accounts.find((a) => a.id === account.id);
-    if (existing) {
-      onChange(accounts.map((a) => (a.id === account.id ? { ...account, updated_at: new Date().toISOString() } : a)));
-    } else {
-      onChange([...accounts, account]);
+    try {
+      if (existing) {
+        const updated = await pipelineApi.updateAccount(account.id, {
+          name: account.name,
+          industry: account.industry,
+          description: account.description,
+          deal_value: account.deal_value,
+          currency: account.currency,
+          probability: account.probability,
+          stage: account.stage,
+          close_date: account.close_date,
+          champion: account.champion,
+          economic_buyer: account.economic_buyer,
+          next_step: account.next_step,
+          next_step_date: account.next_step_date,
+        });
+        onAccountUpdated(updated);
+      } else {
+        const created = await pipelineApi.createAccount({
+          name: account.name,
+          industry: account.industry,
+          description: account.description,
+          deal_value: account.deal_value,
+          currency: account.currency,
+          probability: account.probability,
+          stage: account.stage,
+          close_date: account.close_date,
+          champion: account.champion,
+          economic_buyer: account.economic_buyer,
+          next_step: account.next_step,
+          next_step_date: account.next_step_date,
+        });
+        onAccountCreated(created);
+      }
+    } catch (err) {
+      console.error("Failed to save account:", err);
     }
     setModalOpen(false);
     setModalAccount(null);
@@ -132,7 +172,7 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
                   <div className="account-list__desc">{account.description}</div>
                 )}
               </td>
-              <td>{account.industry || "—"}</td>
+              <td>{account.industry || "\u2014"}</td>
               <td>
                 <span className={`pipeline-badge pipeline-badge--${account.stage}`}>
                   {stageLabel(account.stage)}
@@ -141,9 +181,9 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
               <td>
                 {account.deal_value > 0
                   ? `${account.currency} ${account.deal_value.toLocaleString()}`
-                  : "—"}
+                  : "\u2014"}
               </td>
-              <td>{account.probability > 0 ? `${account.probability}%` : "—"}</td>
+              <td>{account.probability > 0 ? `${account.probability}%` : "\u2014"}</td>
               <td>
                 {account.next_step ? (
                   <div>
@@ -153,7 +193,7 @@ export function AccountList({ accounts, onChange }: AccountListProps) {
                     )}
                   </div>
                 ) : (
-                  "—"
+                  "\u2014"
                 )}
               </td>
               <td>

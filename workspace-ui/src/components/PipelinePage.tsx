@@ -3,43 +3,83 @@ import { AccountList } from "./AccountList";
 import { ActionCard } from "./ActionCard";
 import { ActivityFeed } from "./ActivityFeed";
 import type { Account, ActionCard as ActionCardType, Activity, PipelineData, PipelineTab } from "../types/pipeline";
-
-const STORAGE_KEY = "hermes-pipeline-data";
+import * as pipelineApi from "../lib/pipeline-api";
 
 const defaultData: PipelineData = { accounts: [], activities: [], action_cards: [] };
 
-function loadPipelineData(): PipelineData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as PipelineData;
-  } catch {
-    // ignore parse errors
-  }
-  return { ...defaultData };
-}
-
-function savePipelineData(data: PipelineData) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
 export function PipelinePage() {
-  const [data, setData] = useState<PipelineData>(loadPipelineData);
+  const [data, setData] = useState<PipelineData>(defaultData);
   const [activeTab, setActiveTab] = useState<PipelineTab>("accounts");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load data from API on mount
   useEffect(() => {
-    savePipelineData(data);
-  }, [data]);
-
-  const updateAccounts = useCallback((accounts: Account[]) => {
-    setData((prev) => ({ ...prev, accounts }));
+    let cancelled = false;
+    async function loadData() {
+      try {
+        const result = await pipelineApi.fetchPipelineData();
+        if (!cancelled) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load pipeline data");
+          setLoading(false);
+        }
+      }
+    }
+    loadData();
+    return () => { cancelled = true; };
   }, []);
 
-  const updateActivities = useCallback((activities: Activity[]) => {
-    setData((prev) => ({ ...prev, activities }));
+  // Account callbacks
+  const handleAccountCreated = useCallback((account: Account) => {
+    setData((prev) => ({ ...prev, accounts: [...prev.accounts, account] }));
   }, []);
 
-  const updateActionCards = useCallback((action_cards: ActionCardType[]) => {
-    setData((prev) => ({ ...prev, action_cards }));
+  const handleAccountUpdated = useCallback((account: Account) => {
+    setData((prev) => ({
+      ...prev,
+      accounts: prev.accounts.map((a) => (a.id === account.id ? account : a)),
+    }));
+  }, []);
+
+  const handleAccountDeleted = useCallback((id: string) => {
+    setData((prev) => ({ ...prev, accounts: prev.accounts.filter((a) => a.id !== id) }));
+  }, []);
+
+  // Activity callbacks
+  const handleActivityCreated = useCallback((activity: Activity) => {
+    setData((prev) => ({ ...prev, activities: [...prev.activities, activity] }));
+  }, []);
+
+  const handleActivityUpdated = useCallback((activity: Activity) => {
+    setData((prev) => ({
+      ...prev,
+      activities: prev.activities.map((a) => (a.id === activity.id ? activity : a)),
+    }));
+  }, []);
+
+  const handleActivityDeleted = useCallback((id: string) => {
+    setData((prev) => ({ ...prev, activities: prev.activities.filter((a) => a.id !== id) }));
+  }, []);
+
+  // Action card callbacks
+  const handleActionCardCreated = useCallback((card: ActionCardType) => {
+    setData((prev) => ({ ...prev, action_cards: [...prev.action_cards, card] }));
+  }, []);
+
+  const handleActionCardUpdated = useCallback((card: ActionCardType) => {
+    setData((prev) => ({
+      ...prev,
+      action_cards: prev.action_cards.map((c) => (c.id === card.id ? card : c)),
+    }));
+  }, []);
+
+  const handleActionCardsChange = useCallback((cards: ActionCardType[]) => {
+    setData((prev) => ({ ...prev, action_cards: cards }));
   }, []);
 
   const tabs: { key: PipelineTab; label: string }[] = [
@@ -47,6 +87,45 @@ export function PipelinePage() {
     { key: "activities", label: "Activities" },
     { key: "action-cards", label: "Action Cards" },
   ];
+
+  if (loading) {
+    return (
+      <div className="pipeline-page">
+        <div className="pipeline-page__empty">
+          <p>Loading pipeline data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="pipeline-page">
+        <div className="pipeline-page__empty">
+          <p>Failed to load pipeline data: {error}</p>
+          <button
+            className="btn btn--primary"
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              pipelineApi.fetchPipelineData()
+                .then((result) => {
+                  setData(result);
+                  setLoading(false);
+                })
+                .catch((err) => {
+                  setError(err instanceof Error ? err.message : "Retry failed");
+                  setLoading(false);
+                });
+            }}
+            type="button"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pipeline-page">
@@ -67,15 +146,24 @@ export function PipelinePage() {
       {/* Tab content */}
       <div className="pipeline-page__content">
         {activeTab === "accounts" && (
-          <AccountList accounts={data.accounts} onChange={updateAccounts} />
+          <AccountList
+            accounts={data.accounts}
+            onAccountCreated={handleAccountCreated}
+            onAccountUpdated={handleAccountUpdated}
+            onAccountDeleted={handleAccountDeleted}
+          />
         )}
         {activeTab === "activities" && (
           <ActivityFeed
             activities={data.activities}
             accounts={data.accounts}
-            onChange={updateActivities}
+            onActivityCreated={handleActivityCreated}
+            onActivityUpdated={handleActivityUpdated}
+            onActivityDeleted={handleActivityDeleted}
             actionCards={data.action_cards}
-            onActionCardsChange={updateActionCards}
+            onActionCardCreated={handleActionCardCreated}
+            onActionCardUpdated={handleActionCardUpdated}
+            onActionCardsChange={handleActionCardsChange}
           />
         )}
         {activeTab === "action-cards" && (
@@ -96,9 +184,15 @@ export function PipelinePage() {
                   key={card.id}
                   card={card}
                   onChange={(updated) => {
-                    updateActionCards(
-                      data.action_cards.map((c) => (c.id === updated.id ? updated : c))
-                    );
+                    handleActionCardUpdated(updated);
+                    // Persist the change to the backend
+                    pipelineApi.updateActionCard(updated.id, {
+                      status: updated.status,
+                      recommendations: updated.recommendations,
+                    }).catch(() => {
+                      // On failure, reload from server to recover state
+                      pipelineApi.fetchPipelineData().then((result) => setData(result));
+                    });
                   }}
                 />
               ))
