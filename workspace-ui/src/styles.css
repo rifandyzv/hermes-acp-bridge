@@ -2659,3 +2659,22 @@ button {
   width: 100%;
   justify-content: center;
 }
+
+/* ===== Loading Spinner ===== */
+.spin-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===== Hermes Analysis Error State ===== */
+.activity-feed__hermes-prompt--error {
+  border-color: var(--color-error, #ef4444);
+  background: rgba(239, 68, 68, 0.05);
+}

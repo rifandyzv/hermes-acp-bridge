@@ -86,11 +86,11 @@ export async function createActivity(activity: {
   return readJson(response);
 }
 
-export async function analyzeActivity(id: string): Promise<void> {
+export async function analyzeActivity(id: string): Promise<ActionCard> {
   const response = await fetch(makeUrl(`/api/pipeline/activities/${id}/analyze`), {
     method: "PUT",
   });
-  await readJson(response);
+  return readJson(response);
 }
 
 // -- Action Cards --

@@ -164,6 +164,12 @@ export function PipelinePage() {
             onActionCardCreated={handleActionCardCreated}
             onActionCardUpdated={handleActionCardUpdated}
             onActionCardsChange={handleActionCardsChange}
+            onAnalyzeComplete={() => {
+              // Refresh data from server after analysis to ensure consistency
+              pipelineApi.fetchPipelineData()
+                .then((result) => setData(result))
+                .catch(() => {});
+            }}
           />
         )}
         {activeTab === "action-cards" && (

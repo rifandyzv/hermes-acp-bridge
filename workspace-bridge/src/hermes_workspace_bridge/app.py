@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from .acp_bridge import ACPBridgeService
 from .config import BridgeConfig
 from .pipeline_manager import (
+    analyze_activity,
     create_account,
     create_action_card,
     create_activity,
@@ -317,8 +318,24 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
 
     @app.put("/api/pipeline/activities/{activity_id}/analyze")
     async def pipeline_analyze_activity(activity_id: str) -> dict[str, Any]:
-        # Phase 3 placeholder
-        raise HTTPException(status_code=501, detail="Hermes analysis not yet implemented (Phase 3)")
+        try:
+            card = analyze_activity(activity_id)
+            # Publish WebSocket event so frontend can react immediately
+            try:
+                await bridge.event_bus.publish({
+                    "type": "pipeline.action_card",
+                    "card": card,
+                    "activity_id": activity_id,
+                })
+            except Exception:
+                pass  # Non-critical: WebSocket push failure should not break the response
+            return card
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
 
     @app.get("/api/pipeline/action-cards")
     async def pipeline_list_action_cards() -> list[dict[str, Any]]:

@@ -13,6 +13,7 @@ type ActivityFeedProps = {
   onActionCardCreated: (card: ActionCardType) => void;
   onActionCardUpdated: (card: ActionCardType) => void;
   onActionCardsChange: (cards: ActionCardType[]) => void;
+  onAnalyzeComplete?: (activityId: string, card: ActionCardType) => void;
 };
 
 export function ActivityFeed({
@@ -25,10 +26,13 @@ export function ActivityFeed({
   onActionCardCreated,
   onActionCardUpdated,
   onActionCardsChange,
+  onAnalyzeComplete,
 }: ActivityFeedProps) {
   const [showModal, setShowModal] = useState(false);
   const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<ActivityType | "all">("all");
+  const [analyzingActivityId, setAnalyzingActivityId] = useState<string | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<Record<string, string>>({});
 
   const sorted = [...activities].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -71,87 +75,32 @@ export function ActivityFeed({
     }
   }
 
-  async function handleCreateMockCard(activity: Activity) {
-    const card: ActionCardType = {
-      id: crypto.randomUUID(),
-      account_id: activity.account_id,
-      account_name: activity.account_name,
-      activity_id: activity.id,
-      generated_at: new Date().toISOString(),
-      status: "active",
-      recommendations: {
-        immediate_actions: [
-          {
-            text: "Ask who owns procurement approval -- champion mentioned legal review but no procurement contact",
-            priority: "high",
-            rationale: "Cannot advance to proposal without knowing approval chain",
-            deadline: null,
-            completed: false,
-          },
-          {
-            text: "Confirm target go-live quarter before next call -- buyer asked about deployment readiness",
-            priority: "medium",
-            rationale: "Q3 budget cycle closes in 3 weeks",
-            deadline: null,
-            completed: false,
-          },
-          {
-            text: "Get current infrastructure cost baseline from IT for ROI calculation",
-            priority: "medium",
-            rationale: "Finance team requires quantified savings estimate",
-            deadline: null,
-            completed: false,
-          },
-        ],
-        meddic_gaps: [
-          {
-            element: "Metrics",
-            status: "Needs Discovery",
-            next_step: "Get current infrastructure cost baseline from IT for ROI calculation",
-          },
-          {
-            element: "Decision Process",
-            status: "Unknown",
-            next_step: "Legal mentioned 3-week vendor review; map exact approval steps",
-          },
-        ],
-        stakeholder_actions: [
-          {
-            stakeholder: activity.account_name + " CTO",
-            role: "Champion",
-            action: "Share AWS architecture reference from similar public sector client",
-            framing: "Prepare TCO comparison vs. on-premise licensing",
-          },
-        ],
-        next_meeting_agenda: [
-          "Confirm data residency requirements for sovereign cloud",
-          "Get security review checklist and timeline from InfoSec",
-          "Introduce to procurement lead before proposal stage",
-        ],
-        risk_flags: [
-          {
-            flag: "Budget freeze rumored for Q3",
-            severity: "medium",
-            mitigation: "Verify with finance contact by Friday; accelerate timeline if true",
-          },
-        ],
-      },
-    };
-    // Persist card to backend
+  async function handleAnalyzeActivity(activity: Activity) {
+    setAnalyzingActivityId(activity.id);
+    setAnalyzeError((prev) => ({ ...prev, [activity.id]: "" }));
+
     try {
-      const created = await pipelineApi.updateActionCard(card.id, {
-        status: card.status,
-        recommendations: card.recommendations,
-      });
-      // If the PUT fails (card doesn't exist yet), just use the local card
+      const card = await pipelineApi.analyzeActivity(activity.id);
       onActionCardCreated(card);
-    } catch {
-      onActionCardCreated(card);
+
+      // Mark activity as analyzed
+      const updatedActivity = { ...activity, analyzed: true, action_card_id: card.id };
+      onActivityUpdated(updatedActivity);
+
+      // Notify parent component
+      if (onAnalyzeComplete) {
+        onAnalyzeComplete(activity.id, card);
+      }
+
+      // Auto-expand to show the generated card
+      setExpandedActivityId(activity.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Analysis failed";
+      setAnalyzeError((prev) => ({ ...prev, [activity.id]: message }));
+      console.error("Hermes analysis failed:", err);
+    } finally {
+      setAnalyzingActivityId(null);
     }
-    // Mark activity as analyzed
-    const updatedActivity = { ...activity, analyzed: true, action_card_id: card.id };
-    onActivityUpdated(updatedActivity);
-    setExpandedActivityId(activity.id);
   }
 
   function activityTypeIcon(type: ActivityType) {
@@ -275,12 +224,22 @@ export function ActivityFeed({
                         className="btn btn--accent btn--small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleCreateMockCard(activity);
+                          handleAnalyzeActivity(activity);
                         }}
+                        disabled={analyzingActivityId === activity.id}
                         title="Hermes Recommendation"
                         type="button"
                       >
-                        Hermes Recommendation
+                        {analyzingActivityId === activity.id ? (
+                          <>
+                            <svg className="spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                            </svg>
+                            Analyzing...
+                          </>
+                        ) : (
+                          "Hermes Recommendation"
+                        )}
                       </button>
                     )}
                     <button
@@ -355,13 +314,45 @@ export function ActivityFeed({
                       </div>
                     )}
 
-                    {!activity.analyzed && (
+                    {!activity.analyzed && analyzingActivityId !== activity.id && !analyzeError[activity.id] && (
                       <div className="activity-feed__hermes-prompt">
-                        <p>Hermes Recommendation (coming soon)</p>
+                        <p>Hermes Recommendation</p>
                         <p className="activity-feed__hermes-hint">
-                          In a future update, clicking &quot;Hermes Recommendation&quot; will trigger
-                          an AI analysis of this activity and generate a structured Action Card.
+                          Click the &quot;Hermes Recommendation&quot; button above to generate
+                          an AI-powered Action Card with MEDDIC analysis, stakeholder strategy, and risk flags.
                         </p>
+                      </div>
+                    )}
+
+                    {analyzingActivityId === activity.id && (
+                      <div className="activity-feed__hermes-prompt">
+                        <p>
+                          <svg className="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                          </svg>
+                          Hermes is analyzing this activity...
+                        </p>
+                        <p className="activity-feed__hermes-hint">
+                          Generating MEDDIC gaps, stakeholder strategy, risk flags, and next actions.
+                          This may take up to 60 seconds.
+                        </p>
+                      </div>
+                    )}
+
+                    {analyzeError[activity.id] && (
+                      <div className="activity-feed__hermes-prompt activity-feed__hermes-prompt--error">
+                        <p>Analysis failed</p>
+                        <p className="activity-feed__hermes-hint">{analyzeError[activity.id]}</p>
+                        <button
+                          className="btn btn--ghost btn--small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAnalyzeError((prev) => ({ ...prev, [activity.id]: "" }));
+                          }}
+                          type="button"
+                        >
+                          Retry
+                        </button>
                       </div>
                     )}
                   </div>
