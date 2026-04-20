@@ -1,23 +1,11 @@
-# Hermes Web Workspace Runtime
+# Zero-Touch Web Workspace via ACP Bridge
 
   ## Summary
 
   Build the web workspace as a separate companion product, not as a Hermes codebase change. The product has two
-  parts: a React browser UI and a local Python sidecar. The current implementation uses a direct Hermes `AIAgent`
-  runtime inside the sidecar rather than ACP as the live chat transport. The sidecar exposes browser-friendly
-  HTTP/WebSocket APIs, persists sessions through the local SessionDB-backed store, and aims to match Hermes CLI/TUI
-  behavior closely enough that the browser feels like a real Hermes workspace rather than a thin chat wrapper.
-
-  ## Current Phase
-
-  The codebase is currently in the **behavioral parity and runtime stabilization** phase.
-
-  - The architecture pivot from ACP-driven chat to a direct `AIAgent` runtime is already implemented.
-  - Session-scoped run state, queueing, approvals, and live tool/thinking/reasoning updates are implemented.
-  - The main remaining gap is UX parity with classic CLI/TUI, especially around how “streaming” feels when Hermes
-    only emits final assistant text late in the turn.
-  - Work from this point should bias toward runtime correctness, session isolation, and transcript/event fidelity
-    before cosmetic polish.
+  parts: a React browser UI and a local Python sidecar. The sidecar launches hermes acp, speaks ACP over stdio using
+  the official Python ACP SDK, exposes browser-friendly HTTP/WebSocket APIs, and reads Hermes’ persisted ACP
+  sessions from ~/.hermes/state.db through hermes_state.SessionDB rather than patching Hermes.
 
   References that define the supported Hermes surface:
 
@@ -243,17 +231,6 @@
 
   ### Completed Features
 
-  - **Direct Hermes workspace runtime**
-    - Bridge now runs Hermes sessions through direct `AIAgent` instances instead of ACP prompt transport
-    - Session source is `workspace`, with per-session runtime objects inside the bridge
-    - Browser-facing live events include session info, run lifecycle, tool lifecycle, thinking, reasoning, and
-      blocking prompt requests
-
-  - **Session-scoped live run state**
-    - Each browser session keeps its own active turn, queued turns, status label, and prompt-request state
-    - Sending a prompt in one session no longer leaks “interrupting” or “queued” status into another session
-    - Queued user turns render immediately, then promote into the active turn when the backend starts them
-
   - **Collapsible sidebar with rail mode**
     - Claude-style collapsible sidebar (56px rail ↔ 280px full sidebar)
     - Smooth slide animation with cubic-bezier easing
@@ -262,12 +239,11 @@
     - State persists open/closed via React state
 
   - **Real-time chat UX**
-    - User messages appear immediately after sending, including queued follow-up turns
-    - Live activity panel shows status, thinking, reasoning, and tool progress during the run
-    - Tool execution chips are expandable and preserve per-turn tool lifecycle state
-    - Assistant text is shown incrementally when Hermes emits deltas, then persisted history is reloaded after run
-      completion
-    - Blocking prompts for approval, clarify, sudo, and secret capture are browser-native and session-scoped
+    - User messages appear immediately after sending (pending state with pulse animation)
+    - Live thinking bubbles during agent processing
+    - Tool execution chips with expandable status
+    - Streaming assistant response display
+    - Messages reload from SessionDB after run completes
 
   - **Knowledge base (Wiki)**
     - File upload UI (PDF, DOCX, PPTX, XLSX, MD, TXT)
@@ -285,7 +261,6 @@
   - **Approval workflow**
     - Modal dialog for tool permission requests
     - Three decision options: Allow once, Allow always, Deny
-    - Clarify, sudo, and secret prompts are also supported
     - Blocks Hermes execution until browser response
 
   - **Bridge infrastructure**
@@ -294,12 +269,41 @@
     - Health check endpoint
     - Wiki document management API
 
+  - **BD Pipeline -- Phase 1: Frontend Shell (localStorage)**
+    - Third sidebar tab "Pipeline" with briefcase icon (rail + expanded)
+    - Pipeline page with 3 sub-views: Accounts, Activities, Action Cards
+    - Account list with full CRUD (add/edit/delete) and search filter
+    - Activity log modal: log meeting/call/email/note with free-text brief
+    - Activity feed: chronological display with type filter
+    - Action Card component: renders Hermes recommendation cards with
+      Immediate Actions, MEDDIC Gaps, Stakeholder Strategy, Next Meeting Agenda, Risk Flags
+    - Account detail panel: slide-over showing account details + activity history
+    - "Hermes Recommendation" placeholder button (generates mock cards for now)
+    - All data persisted in localStorage under `hermes-pipeline-data`
+    - TypeScript types at `workspace-ui/src/types/pipeline.ts`
+    - Files created: PipelinePage.tsx, AccountList.tsx, ActivityFeed.tsx,
+      ActionCard.tsx, ActivityLogModal.tsx
+    - Files modified: App.tsx, SessionSidebar.tsx, styles.css
+    - Verified: `npx tsc --noEmit` passes, `npx vite build` succeeds
+
+  ### Development Plan
+
+  The BD Pipeline feature is tracked in a formal development plan:
+  - **Plan document**: `/home/dev/hermes-atp/PLAN.md`
+  - **Architecture**: AI-native BD co-pilot. Core loop: BD logs activity
+    --> Hermes analyzes --> Action Card generated --> BD acts --> Repeat
+  - **Storage (V1)**: localStorage (Phase 1, DONE)
+  - **Storage (V2)**: Bridge-managed JSON at `~/.hermes/bd/pipeline.json` (Phase 2)
+  - **Analysis (V3)**: Hermes subprocess with BD skill-based prompt for
+    MEDDIC gap detection, stakeholder strategy, risk flags (Phase 3)
+  - **Current phase**: Phase 1 complete. Phase 2 (bridge backend) is next.
+
   ### Remaining Work
 
-  - [ ] Improve live-turn UX parity with classic CLI/TUI for tool-heavy and long-running prompts
-  - [ ] Investigate whether Hermes can expose truly incremental assistant `message.delta` events
-  - [ ] Slash-command parity with Hermes CLI/TUI behavior
-  - [ ] Better stale-event handling and reload recovery across long-lived browser sessions
+  - [ ] **BD Pipeline Phase 2**: Bridge backend REST API + JSON persistence
+  - [ ] **BD Pipeline Phase 3**: Hermes agentic analysis (Action Card generation)
+  - [ ] **BD Pipeline Phase 4**: Agentic loop, Kanban board, health scores
+  - [ ] Incremental message streaming (Hermes-side limitation, see Known Issues)
   - [ ] Auto-title generation for new sessions
   - [ ] Session search/filtering improvements
   - [ ] Better error handling and retry logic
@@ -313,8 +317,8 @@
   ### Tech Stack
 
   - **Frontend**: Vite + React 18 + TypeScript
-  - **Backend**: Python 3.10+ with FastAPI and direct Hermes runtime integration
+  - **Backend**: Python 3.10+ with FastAPI, ACP Python SDK
   - **Styling**: Custom CSS with CSS variables for theming
-  - **State**: React hooks with session-scoped runtime state in the browser
+  - **State**: React hooks (useState, useEffect, useMemo)
   - **Storage**: Hermes SessionDB (~/.hermes/state.db), local file system for wiki
   - **Communication**: REST API + WebSocket for real-time events

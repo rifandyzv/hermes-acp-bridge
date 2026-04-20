@@ -3,8 +3,8 @@ import { formatDistanceToNow } from "date-fns";
 import type { SessionSummary } from "../types";
 
 type SessionSidebarProps = {
-  activeTab: "chat" | "knowledge";
-  onTabChange: (tab: "chat" | "knowledge") => void;
+  activeTab: "chat" | "knowledge" | "pipeline";
+  onTabChange: (tab: "chat" | "knowledge" | "pipeline") => void;
   sessions: SessionSummary[];
   selectedSessionId: string | null;
   onSelect: (sessionId: string) => void;
@@ -41,13 +41,6 @@ function groupSessions(sessions: SessionSummary[]): GroupedSessions[] {
     } else {
       groups[3].sessions.push(session);
     }
-  }
-
-  for (const group of groups) {
-    group.sessions.sort(
-      (left, right) =>
-        (right.last_active ?? right.started_at ?? 0) - (left.last_active ?? left.started_at ?? 0)
-    );
   }
 
   return groups.filter((g) => g.sessions.length > 0);
@@ -137,6 +130,19 @@ export function SessionSidebar({
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
             </button>
+            <button
+              className={`sidebar-rail__btn${activeTab === "pipeline" ? " sidebar-rail__btn--active" : ""}`}
+              onClick={() => onTabChange("pipeline")}
+              type="button"
+              title="Pipeline"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                <line x1="12" y1="12" x2="12" y2="16"/>
+                <line x1="10" y1="14" x2="14" y2="14"/>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -191,6 +197,19 @@ export function SessionSidebar({
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
               Knowledge
+            </button>
+            <button
+              className={`sidebar__nav-item${activeTab === "pipeline" ? " sidebar__nav-item--active" : ""}`}
+              onClick={() => onTabChange("pipeline")}
+              type="button"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                <line x1="12" y1="12" x2="12" y2="16"/>
+                <line x1="10" y1="14" x2="14" y2="14"/>
+              </svg>
+              Pipeline
             </button>
           </div>
 

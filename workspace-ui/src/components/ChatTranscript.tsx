@@ -1,18 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-
-import type {
-  LiveActivity,
-  LiveTool,
-  SessionMessage,
-  SessionRuntimeState,
-} from "../types";
+import type { SessionMessage, ToolEvent } from "../types";
 
 type ChatTranscriptProps = {
   messages: SessionMessage[];
-  runtime: SessionRuntimeState | null;
+  pendingAssistant: string;
+  pendingThinking: string;
+  pendingUserMessage: string | null;
+  toolEvents: ToolEvent[];
 };
 
 const codeLanguages: Record<string, string[]> = {
@@ -61,7 +58,11 @@ function MarkdownContent({ content }: { content: string }) {
               );
             }
 
-            return <code className={className}>{children}</code>;
+            return (
+              <code className={className}>
+                {children}
+              </code>
+            );
           },
         }}
       >
@@ -71,7 +72,7 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function InsightPanel({ label, text }: { label: string; text: string }) {
+function ThinkingBubble({ text }: { text: string }) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (!text.trim()) return null;
@@ -80,135 +81,153 @@ function InsightPanel({ label, text }: { label: string; text: string }) {
     <div className="thinking-bubble">
       <button
         className="thinking-bubble__header"
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={() => setCollapsed(!collapsed)}
         type="button"
       >
         <span className="thinking-bubble__icon">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </span>
-        <span className="thinking-bubble__label">{label}</span>
+        <span className="thinking-bubble__label">Thinking</span>
         <span className="thinking-bubble__toggle">{collapsed ? "▸" : "▾"}</span>
       </button>
-      {!collapsed ? (
-        <div className="thinking-bubble__content">
-          <MarkdownContent content={text} />
+      {!collapsed && (
+        <div className="thinking-bubble__content streaming-cursor">
+          {text}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
-function ToolGroup({ tools }: { tools: LiveTool[] }) {
+function ToolChipGroup({ tools }: { tools: ToolEvent[] }) {
   const [expanded, setExpanded] = useState(false);
 
   if (tools.length === 0) return null;
 
-  const runningCount = tools.filter((tool) => tool.status === "running").length;
-  const completedCount = tools.filter((tool) => tool.status === "complete").length;
+  const completedCount = tools.filter((t) => t.type === "tool.completed").length;
+  const runningCount = tools.filter((t) => t.type === "tool.started" && !tools.some(
+    (c) => c.type === "tool.completed" && c.title === t.title
+  )).length;
+
+  const toolMap = new Map<string, { name: string; status: "running" | "success" }>();
+  for (const tool of tools) {
+    const name = tool.title || "tool";
+    if (tool.type === "tool.started" && !toolMap.has(name)) {
+      toolMap.set(name, { name, status: "running" });
+    }
+    if (tool.type === "tool.completed") {
+      toolMap.set(name, { name, status: "success" });
+    }
+  }
 
   return (
-    <div className={`tool-chip${expanded ? " tool-chip--expanded" : ""}`}>
-      <button className="tool-chip__header" onClick={() => setExpanded((value) => !value)} type="button">
-        <span className="tool-chip__icon">{runningCount > 0 ? "⚡" : "✓"}</span>
-        <span className="tool-chip__label">
-          {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool
-          {tools.length !== 1 ? "s" : ""}
-        </span>
+    <button
+      className={`tool-chip${expanded ? " tool-chip--expanded" : ""}`}
+      onClick={() => tools.length > 0 && setExpanded(!expanded)}
+      type="button"
+    >
+      <span className="tool-chip__icon">
+        {runningCount > 0 ? "⚡" : "✓"}
+      </span>
+      <span className="tool-chip__label">
+        {runningCount > 0 ? "Running" : "Executed"} {completedCount || tools.length} tool{tools.length !== 1 ? "s" : ""}
+      </span>
+      {tools.length > 1 && !expanded && (
         <span className="tool-chip__count">{tools.length}</span>
-      </button>
-      <div className="tool-chip__list">
-        {(expanded ? tools : tools.slice(Math.max(0, tools.length - 3))).map((tool) => (
-          <div className="tool-chip__item tool-chip__item--card" key={tool.toolId}>
-            <div className="tool-chip__item-header">
-              <span
-                className={`tool-chip__status tool-chip__status--${
-                  tool.status === "complete" ? "success" : "running"
-                }`}
-              >
-                {tool.status === "complete" ? "✓" : "…"}
+      )}
+
+      {expanded && (
+        <div className="tool-chip__list">
+          {Array.from(toolMap.values()).map((tool) => (
+            <div className="tool-chip__item" key={tool.name}>
+              <span className={`tool-chip__status tool-chip__status--${tool.status}`}>
+                {tool.status === "success" ? "✓" : "…"}
               </span>
-              <span className="tool-chip__item-title">{tool.name}</span>
-              {tool.durationS ? <span className="tool-chip__meta">{tool.durationS.toFixed(1)}s</span> : null}
+              <span>{tool.name}</span>
             </div>
-            {tool.context ? <div className="tool-chip__meta">{tool.context}</div> : null}
-            {tool.preview ? <div className="tool-chip__body">{tool.preview}</div> : null}
-            {tool.summary ? <div className="tool-chip__body">{tool.summary}</div> : null}
-            {tool.inlineDiff ? (
-              <div className="tool-chip__body">
-                <MarkdownContent content={`\`\`\`diff\n${tool.inlineDiff}\n\`\`\``} />
-              </div>
-            ) : null}
-            {tool.rawResult ? (
-              <div className="tool-chip__body">
-                <MarkdownContent content={`\`\`\`\n${tool.rawResult}\n\`\`\``} />
-              </div>
-            ) : null}
-            {tool.error ? <div className="tool-chip__body">{tool.error}</div> : null}
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      )}
+    </button>
   );
 }
 
-function MessageBubble({
-  message,
-  pending = false,
-  queued = false,
-  badge,
-}: {
-  message: SessionMessage;
-  pending?: boolean;
-  queued?: boolean;
-  badge?: string;
-}) {
-  const isUser = message.role === "user";
-  const isSystem = message.role === "system";
-  const roleLabel = isUser ? "You" : isSystem ? "System" : "Hermes";
-  const avatarLabel = isUser ? "U" : isSystem ? "S" : "H";
-  const visibleContent = (message.content || "").trim();
+function isToolArtifact(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null) {
+        const keys = Object.keys(parsed);
+        const toolKeys = ["success", "results", "data", "tool_call", "tool_name", "arguments", "output", "error", "status"];
+        if (keys.some((k) => toolKeys.includes(k))) return true;
+      }
+    } catch {
+      // not valid JSON
+    }
+  }
+  return false;
+}
 
-  if (!visibleContent) return null;
+function isToolCallAnnouncement(content: string): boolean {
+  const lower = content.toLowerCase();
+  return (
+    lower.startsWith("called the") ||
+    lower.startsWith("calling the") ||
+    lower.includes("with the following input") ||
+    lower.includes("tool result") ||
+    lower.includes("tool output")
+  );
+}
+
+function extractToolName(content: string): string | null {
+  const match = content.match(/called\s+(?:the\s+)?(\w+)\s+tool/i);
+  if (match) return match[1];
+
+  try {
+    const parsed = JSON.parse(content.trim());
+    if (typeof parsed === "object" && parsed !== null) {
+      if (parsed.tool_name) return String(parsed.tool_name);
+      if (parsed.name) return String(parsed.name);
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
+function MessageBubble({ message }: { message: SessionMessage }) {
+  const isUser = message.role === "user";
+  const roleLabel = isUser ? "You" : "Hermes";
+  const avatarLabel = isUser ? "U" : "H";
+
+  if (message.tool_name) return null;
   if (message.role === "tool" || message.role === "function") return null;
+  if (isToolArtifact(message.content)) return null;
+  if (isToolCallAnnouncement(message.content)) return null;
 
   return (
-    <article
-      className={`message message--${isUser ? "user" : "assistant"}${
-        pending ? " message--pending" : ""
-      }${queued ? " message--queued" : ""}`}
-    >
+    <article className={`message message--${isUser ? "user" : "assistant"}`}>
       <header className="message__header">
-        {!isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
+        {!isUser && <span className="message__avatar">{avatarLabel}</span>}
         <span>{roleLabel}</span>
-        {badge ? <span className="message__badge">{badge}</span> : null}
-        {isUser ? <span className="message__avatar">{avatarLabel}</span> : null}
+        {isUser && <span className="message__avatar">{avatarLabel}</span>}
       </header>
       <div className="message__body">
-        <MarkdownContent content={visibleContent} />
+        <MarkdownContent content={message.content} />
       </div>
     </article>
   );
 }
 
 function StreamingBubble({ text }: { text: string }) {
-  if (!text.trim()) return null;
-
   return (
     <article className="message message--assistant message--streaming">
       <header className="message__header">
         <span className="message__avatar">H</span>
         <span>Hermes</span>
-        <span className="message__badge">Live</span>
       </header>
       <div className="message__body">
         <div className="streaming-cursor" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -219,94 +238,8 @@ function StreamingBubble({ text }: { text: string }) {
   );
 }
 
-function assistantToolCalls(message: SessionMessage): LiveTool[] {
-  const calls = message.tool_calls ?? [];
-  return calls.map((toolCall, index) => ({
-    toolId: toolCall.id || message.tool_call_id || `tool-${message.id ?? index}`,
-    name: toolCall.function?.name || toolCall.name || "tool",
-    context: toolCall.function?.arguments || toolCall.arguments || "",
-    preview: "",
-    status: "running",
-  }));
-}
-
-function mergeToolCompletion(buffer: LiveTool[], message: SessionMessage): LiveTool[] {
-  const toolId = message.tool_call_id || `tool-msg-${message.id ?? Math.random()}`;
-  const index = buffer.findIndex((tool) => tool.toolId === toolId);
-  const completeTool: LiveTool = {
-    toolId,
-    name: message.tool_name || buffer[index]?.name || "tool",
-    context: buffer[index]?.context || "",
-    preview: "",
-    rawResult: message.content || "",
-    status: "complete",
-  };
-
-  if (index === -1) {
-    return [...buffer, completeTool];
-  }
-
-  const next = [...buffer];
-  next[index] = { ...next[index], ...completeTool };
-  return next;
-}
-
-function LiveActivityPanel({ activity }: { activity: LiveActivity[] }) {
-  const visible = activity.filter((item) => item.kind !== "tool" && item.text.trim());
-  if (visible.length === 0) return null;
-
-  return (
-    <article className="live-console">
-      <header className="live-console__header">
-        <span className="live-console__pill">Live run</span>
-        <span className="live-console__meta">Continuous runtime feedback</span>
-      </header>
-      <div className="live-console__body">
-        {visible.map((item) => (
-          <section className="live-console__section" key={item.id}>
-            <div className="live-console__section-header">
-              <span className={`live-console__tone live-console__tone--${item.tone ?? "running"}`} />
-              <span className="live-console__section-label">{item.label}</span>
-            </div>
-            <div className="live-console__section-body">
-              <MarkdownContent content={item.text} />
-            </div>
-          </section>
-        ))}
-      </div>
-    </article>
-  );
-}
-
-export function ChatTranscript({ messages, runtime }: ChatTranscriptProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
-
-  const activeTurn = runtime?.activeTurn ?? null;
-  const queuedTurns = runtime?.queuedTurns ?? [];
-  const hasContent = messages.length > 0 || activeTurn !== null || queuedTurns.length > 0;
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element || !stickToBottomRef.current) return;
-    element.scrollTop = element.scrollHeight;
-  }, [
-    messages,
-    activeTurn?.assistant,
-    activeTurn?.thinking,
-    activeTurn?.reasoning,
-    activeTurn?.interim,
-    activeTurn?.tools,
-    activeTurn?.statusText,
-    queuedTurns,
-  ]);
-
-  function handleScroll() {
-    const element = containerRef.current;
-    if (!element) return;
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    stickToBottomRef.current = distanceFromBottom < 48;
-  }
+export function ChatTranscript({ messages, pendingAssistant, pendingThinking, pendingUserMessage, toolEvents }: ChatTranscriptProps) {
+  const hasContent = messages.length > 0 || pendingAssistant || pendingThinking || pendingUserMessage;
 
   if (!hasContent) {
     return (
@@ -322,32 +255,51 @@ export function ChatTranscript({ messages, runtime }: ChatTranscriptProps) {
     );
   }
 
-  const elements: JSX.Element[] = [];
-  let pendingTools: LiveTool[] = [];
+  const elements: React.ReactNode[] = [];
+  let pendingTools: ToolEvent[] = [];
   let keyCounter = 0;
 
   for (const message of messages) {
-    if (message.role === "assistant" && message.reasoning) {
-      elements.push(
-        <InsightPanel key={`reasoning-${keyCounter++}`} label="Reasoning" text={message.reasoning} />
-      );
+    if (message.tool_name) {
+      pendingTools.push({
+        id: message.tool_call_id || `tool-${keyCounter}`,
+        type: "tool.started",
+        title: message.tool_name,
+        text: message.content,
+        timestamp: Date.now(),
+      });
+      continue;
     }
 
-    if (message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0) {
-      if ((message.content || "").trim()) {
-        elements.push(<MessageBubble key={`msg-${keyCounter++}`} message={message} />);
+    if (isToolArtifact(message.content) || isToolCallAnnouncement(message.content)) {
+      const toolName = extractToolName(message.content);
+      if (toolName) {
+        pendingTools.push({
+          id: `tool-${keyCounter}`,
+          type: "tool.completed",
+          title: toolName,
+          text: message.content,
+          timestamp: Date.now(),
+          success: true,
+        });
       }
-      pendingTools = [...pendingTools, ...assistantToolCalls(message)];
       continue;
     }
 
     if (message.role === "tool" || message.role === "function") {
-      pendingTools = mergeToolCompletion(pendingTools, message);
+      pendingTools.push({
+        id: message.tool_call_id || `tool-${keyCounter}`,
+        type: "tool.completed",
+        title: message.tool_name || "tool",
+        text: message.content,
+        timestamp: Date.now(),
+        success: true,
+      });
       continue;
     }
 
     if (pendingTools.length > 0) {
-      elements.push(<ToolGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
+      elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
       pendingTools = [];
     }
 
@@ -355,56 +307,37 @@ export function ChatTranscript({ messages, runtime }: ChatTranscriptProps) {
   }
 
   if (pendingTools.length > 0) {
-    elements.push(<ToolGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
+    elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
   }
 
-  if (activeTurn) {
-    elements.push(
-      <MessageBubble
-        key={`live-user-${activeTurn.runId}`}
-        message={{ role: "user", content: activeTurn.userText }}
-        pending
-        badge={runtime?.running ? "Active" : activeTurn.statusText}
-      />
-    );
-
-    elements.push(
-      <LiveActivityPanel key={`activity-${activeTurn.runId}`} activity={activeTurn.activity} />
-    );
-
-    activeTurn.interim.forEach((text, index) => {
-      elements.push(
-        <MessageBubble
-          key={`interim-${activeTurn.runId}-${index}`}
-          message={{ role: "assistant", content: text }}
-          badge="Interim"
-        />
-      );
-    });
-
-    if (activeTurn.tools.length > 0) {
-      elements.push(<ToolGroup key={`live-tools-${activeTurn.runId}`} tools={activeTurn.tools} />);
+  if (pendingAssistant || pendingThinking || toolEvents.length > 0) {
+    if (pendingThinking) {
+      elements.push(<ThinkingBubble key="thinking" text={pendingThinking} />);
     }
-
-    if (activeTurn.assistant) {
-      elements.push(<StreamingBubble key={`stream-${activeTurn.runId}`} text={activeTurn.assistant} />);
+    if (toolEvents.length > 0) {
+      elements.push(<ToolChipGroup key={`tools-live-${keyCounter++}`} tools={toolEvents} />);
+    }
+    if (pendingAssistant) {
+      elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
     }
   }
 
-  queuedTurns.forEach((queuedTurn) => {
+  if (pendingUserMessage) {
     elements.push(
-      <MessageBubble
-        key={`queued-${queuedTurn.id}`}
-        message={{ role: "user", content: queuedTurn.userText }}
-        pending
-        queued
-        badge={queuedTurn.mode === "interrupt" ? "Queued after interrupt" : "Queued"}
-      />
+      <article className="message message--user message--pending" key="pending-user">
+        <header className="message__header">
+          <span>You</span>
+          <span className="message__avatar">U</span>
+        </header>
+        <div className="message__body">
+          <MarkdownContent content={pendingUserMessage} />
+        </div>
+      </article>
     );
-  });
+  }
 
   return (
-    <div className="transcript" onScroll={handleScroll} ref={containerRef}>
+    <div className="transcript">
       {elements}
     </div>
   );
