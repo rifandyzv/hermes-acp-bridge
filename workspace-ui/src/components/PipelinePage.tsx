@@ -114,6 +114,7 @@ export function PipelinePage() {
   const [activeTab, setActiveTab] = useState<PipelineTab>("accounts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   // Detail panel state
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -349,6 +350,8 @@ export function PipelinePage() {
                 .then((result) => setData(result))
                 .catch(() => {});
             }}
+            analyzeError={analyzeError}
+            onAnalyzeError={setAnalyzeError}
           />
         )}
         {activeTab === "action-cards" && (

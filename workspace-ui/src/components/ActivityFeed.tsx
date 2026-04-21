@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ActivityLogModal } from "./ActivityLogModal";
+import * as pipelineApi from "../lib/pipeline-api";
 import type { Account, ActionCard as ActionCardType, Activity, ActivityType } from "../types/pipeline";
 
 type ActivityFeedProps = {
@@ -13,6 +14,8 @@ type ActivityFeedProps = {
   onActionCardUpdated: (card: ActionCardType) => void;
   onActionCardsChange: (cards: ActionCardType[]) => void;
   onAnalyzeComplete: () => void;
+  analyzeError: string | null;
+  onAnalyzeError: (msg: string | null) => void;
 };
 
 export function ActivityFeed({
@@ -26,6 +29,8 @@ export function ActivityFeed({
   onActionCardUpdated,
   onActionCardsChange,
   onAnalyzeComplete,
+  analyzeError,
+  onAnalyzeError,
 }: ActivityFeedProps) {
   const [showModal, setShowModal] = useState(false);
   const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
@@ -39,85 +44,25 @@ export function ActivityFeed({
       ? sorted
       : sorted.filter((a) => a.type === typeFilter);
 
-  function handleCreateMockCard(activity: Activity) {
+  async function handleAnalyzeActivity(activity: Activity) {
     setAnalyzingId(activity.id);
-    // Simulate async analysis with mock card
-    setTimeout(() => {
-      const card: ActionCardType = {
-        id: crypto.randomUUID(),
-        account_id: activity.account_id,
-        account_name: activity.account_name,
-        activity_id: activity.id,
-        generated_at: new Date().toISOString(),
-        status: "active",
-        recommendations: {
-          immediate_actions: [
-            {
-              text: "Ask who owns procurement approval -- champion mentioned legal review but no procurement contact",
-              priority: "high",
-              rationale: "Cannot advance to proposal without knowing approval chain",
-              deadline: null,
-              completed: false,
-            },
-            {
-              text: "Confirm target go-live quarter before next call -- buyer asked about deployment readiness",
-              priority: "medium",
-              rationale: "Q3 budget cycle closes in 3 weeks",
-              deadline: null,
-              completed: false,
-            },
-            {
-              text: "Get current infrastructure cost baseline from IT for ROI calculation",
-              priority: "medium",
-              rationale: "Finance team requires quantified savings estimate",
-              deadline: null,
-              completed: false,
-            },
-          ],
-          meddic_gaps: [
-            {
-              element: "Metrics",
-              status: "Needs Discovery",
-              next_step: "Get current infrastructure cost baseline from IT for ROI calculation",
-            },
-            {
-              element: "Decision Process",
-              status: "Unknown",
-              next_step: "Legal mentioned 3-week vendor review; map exact approval steps",
-            },
-          ],
-          stakeholder_actions: [
-            {
-              stakeholder: activity.account_name + " CTO",
-              role: "Champion",
-              action: "Share AWS architecture reference from similar public sector client",
-              framing: "Prepare TCO comparison vs. on-premise licensing",
-            },
-          ],
-          next_meeting_agenda: [
-            "Confirm data residency requirements for sovereign cloud",
-            "Get security review checklist and timeline from InfoSec",
-            "Introduce to procurement lead before proposal stage",
-          ],
-          risk_flags: [
-            {
-              flag: "Budget freeze rumored for Q3",
-              severity: "medium",
-              mitigation: "Verify with finance contact by Friday; accelerate timeline if true",
-            },
-          ],
-        },
-      };
+    onAnalyzeError(null);
+    try {
+      const card = await pipelineApi.analyzeActivity(activity.id);
       onActionCardCreated(card);
       onActivityUpdated({
         ...activity,
         analyzed: true,
         action_card_id: card.id,
       });
-      setAnalyzingId(null);
       setExpandedActivityId(activity.id);
       onAnalyzeComplete();
-    }, 1500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Analysis failed";
+      onAnalyzeError(msg);
+    } finally {
+      setAnalyzingId(null);
+    }
   }
 
   function activityTypeIcon(type: ActivityType) {
@@ -242,7 +187,7 @@ export function ActivityFeed({
                         className="btn btn--accent btn--small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleCreateMockCard(activity);
+                          handleAnalyzeActivity(activity);
                         }}
                         title="Hermes Recommendation"
                         type="button"
@@ -324,13 +269,20 @@ export function ActivityFeed({
                       </div>
                     )}
 
-                    {!activity.analyzed && !isAnalyzing && (
-                      <div className="activity-feed__hermes-prompt">
-                        <p>Hermes Recommendation (coming soon)</p>
-                        <p className="activity-feed__hermes-hint">
-                          In a future update, clicking &quot;Hermes Recommendation&quot; will trigger
-                          an AI analysis of this activity and generate a structured Action Card.
-                        </p>
+                    {!activity.analyzed && !isAnalyzing && analyzeError && (
+                      <div className="activity-feed__hermes-prompt activity-feed__hermes-prompt--error">
+                        <p>Analysis failed</p>
+                        <p className="activity-feed__hermes-hint">{analyzeError}</p>
+                        <button
+                          className="btn btn--accent btn--small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAnalyzeActivity(activity);
+                          }}
+                          type="button"
+                        >
+                          Retry
+                        </button>
                       </div>
                     )}
                   </div>
