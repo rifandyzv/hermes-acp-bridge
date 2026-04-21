@@ -108,3 +108,15 @@ export async function updateActionCard(id: string, updates: Partial<ActionCard>)
   });
   return readJson(response);
 }
+
+// -- Ask Hermes --
+
+export async function askHermes(accountId: string, question: string): Promise<string> {
+  const response = await fetch(makeUrl(`/api/pipeline/accounts/${accountId}/ask`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  const result = (await readJson(response)) as { answer: string };
+  return result.answer;
+}

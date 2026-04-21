@@ -12,6 +12,9 @@ from .acp_bridge import ACPBridgeService
 from .config import BridgeConfig
 from .pipeline_manager import (
     analyze_activity,
+    ask_hermes,
+    compute_health_score,
+    compute_meddic_status,
     create_account,
     create_action_card,
     create_activity,
@@ -106,6 +109,10 @@ class CreateActivityRequest(BaseModel):
 class UpdateActionCardRequest(BaseModel):
     status: str | None = None
     recommendations: dict[str, Any] | None = None
+
+
+class AskHermesRequest(BaseModel):
+    question: str = Field(min_length=1)
 
 
 def create_app(config: BridgeConfig | None = None) -> FastAPI:
@@ -350,5 +357,23 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
         if result is None:
             raise HTTPException(status_code=404, detail="Action card not found")
         return result
+
+    @app.get("/api/pipeline/accounts/{account_id}/health")
+    async def pipeline_health_score(account_id: str) -> dict[str, Any]:
+        score = compute_health_score(account_id)
+        meddic = compute_meddic_status(account_id)
+        return {"account_id": account_id, "health_score": score, "meddic": meddic}
+
+    @app.post("/api/pipeline/accounts/{account_id}/ask")
+    async def pipeline_ask_hermes(account_id: str, request: AskHermesRequest) -> dict[str, Any]:
+        try:
+            answer = ask_hermes(account_id, request.question)
+            return {"answer": answer}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
 
     return app

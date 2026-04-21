@@ -1,4 +1,4 @@
-export type PipelineTab = "accounts" | "activities" | "action-cards";
+export type PipelineTab = "accounts" | "activities" | "action-cards" | "board";
 
 export type DealStage =
   | "prospecting"

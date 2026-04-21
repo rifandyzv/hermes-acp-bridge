@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -497,3 +498,281 @@ Generate the Action Card now."""
     update_activity(activity_id, {"analyzed": True, "action_card_id": card["id"]})
 
     return card
+
+
+# -- Health Score & MEDDIC Tracking --
+
+_MEDDIC_ELEMENTS = [
+    "Metrics",
+    "Economic Buyer",
+    "Decision Criteria",
+    "Decision Process",
+    "Identify Pain",
+    "Champion",
+]
+
+_STAGE_POINTS = {
+    "prospecting": 0,
+    "discovery": 5,
+    "solution-design": 15,
+    "proposal": 20,
+    "negotiation": 25,
+    "closed-won": 30,
+    "closed-lost": 0,
+}
+
+
+def compute_meddic_status(account_id: str) -> dict[str, dict[str, str]]:
+    """Compute MEDDIC element status from action cards for an account.
+
+    Returns a dict mapping each MEDDIC element to its status:
+    - element: the MEDDIC element name
+    - status: "Complete", "Filled", or "Needs Discovery"
+    - gaps: list of gap descriptions from active action cards
+    """
+    data = load_data()
+
+    # Get all active action cards for this account
+    account_cards = [
+        c for c in data["action_cards"]
+        if c["account_id"] == account_id and c["status"] == "active"
+    ]
+
+    # Initialize all elements as "Needs Discovery"
+    result: dict[str, dict[str, str]] = {}
+    for elem in _MEDDIC_ELEMENTS:
+        result[elem] = {
+            "status": "Needs Discovery",
+            "gaps": [],
+        }
+
+    # Parse action cards to update status
+    for card in account_cards:
+        recs = card.get("recommendations", {})
+        meddic_gaps = recs.get("meddic_gaps", [])
+        for gap in meddic_gaps:
+            elem = gap.get("element", "")
+            gap_status = gap.get("status", "")
+            next_step = gap.get("next_step", "")
+
+            # Check if this element matches any MEDDIC element
+            for meddic_elem in _MEDDIC_ELEMENTS:
+                if elem.lower() == meddic_elem.lower():
+                    if gap_status in ("Complete", "Filled"):
+                        result[meddic_elem]["status"] = gap_status
+                    elif gap_status == "Needs Discovery":
+                        # Only mark as Needs Discovery if not already Complete/Filled
+                        if result[meddic_elem]["status"] != "Complete":
+                            result[meddic_elem]["status"] = "Needs Discovery"
+                        if next_step:
+                            result[meddic_elem]["gaps"].append(next_step)
+
+    return result
+
+
+def compute_health_score(account_id: str) -> int:
+    """Compute account health score (0-100).
+
+    Scoring:
+    - MEDDIC completion: 40 points (6 elements * ~6.67 each)
+    - Activity recency: 30 points (within 7 days = 30, 14 days = 20, 30 days = 10, older = 0)
+    - Risk flags: -20 per high, -10 per medium, -5 per low (capped at -30)
+    - Deal stage: 30 points max
+    """
+    data = load_data()
+
+    # Find account
+    account = None
+    for acct in data["accounts"]:
+        if acct["id"] == account_id:
+            account = acct
+            break
+
+    if account is None:
+        return 0
+
+    # MEDDIC completion: 40 points
+    meddic = compute_meddic_status(account_id)
+    meddic_score = 0
+    for elem, info in meddic.items():
+        if info["status"] in ("Complete", "Filled"):
+            meddic_score += 40 / 6  # ~6.67 per element
+    meddic_score = min(meddic_score, 40)
+
+    # Activity recency: 30 points
+    activities = [
+        a for a in data["activities"]
+        if a["account_id"] == account_id
+    ]
+    recency_score = 0
+    if activities:
+        # Find most recent activity date
+        dates = [a.get("date", "") for a in activities if a.get("date")]
+        if dates:
+            dates.sort(reverse=True)
+            most_recent = dates[0]
+            try:
+                from datetime import datetime, timedelta
+                activity_date = datetime.fromisoformat(most_recent.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                days_since = (now - activity_date).days
+
+                if days_since <= 7:
+                    recency_score = 30
+                elif days_since <= 14:
+                    recency_score = 20
+                elif days_since <= 30:
+                    recency_score = 10
+                else:
+                    recency_score = 0
+            except (ValueError, TypeError):
+                recency_score = 0
+
+    # Risk flags: negative points (capped at -30)
+    risk_deduction = 0
+    account_cards = [
+        c for c in data["action_cards"]
+        if c["account_id"] == account_id and c["status"] == "active"
+    ]
+    for card in account_cards:
+        recs = card.get("recommendations", {})
+        for risk in recs.get("risk_flags", []):
+            severity = risk.get("severity", "medium")
+            if severity == "high":
+                risk_deduction += 20
+            elif severity == "medium":
+                risk_deduction += 10
+            else:
+                risk_deduction += 5
+    risk_deduction = min(risk_deduction, 30)
+
+    # Deal stage: 30 points max
+    stage = account.get("stage", "prospecting")
+    stage_score = _STAGE_POINTS.get(stage, 0)
+
+    # Total score
+    total = meddic_score + recency_score - risk_deduction + stage_score
+    return max(0, min(100, int(round(total))))
+
+
+def ask_hermes(account_id: str, question: str) -> str:
+    """Ask Hermes a free-form question about an account.
+
+    Returns Hermes's text response.
+    """
+    data = load_data()
+
+    # Find account
+    account = None
+    for acct in data["accounts"]:
+        if acct["id"] == account_id:
+            account = acct
+            break
+
+    if account is None:
+        raise ValueError(f"Account {account_id} not found")
+
+    # Build account context
+    account_context = f"""Account: {account.get('name', 'Unknown')}
+Industry: {account.get('industry', 'N/A')}
+Deal Value: {account.get('deal_value', 0)} {account.get('currency', 'USD')}
+Stage: {account.get('stage', 'N/A')}
+Probability: {account.get('probability', 0)}%
+Champion: {account.get('champion', 'Not identified')}
+Economic Buyer: {account.get('economic_buyer', 'Not identified')}
+Next Step: {account.get('next_step', 'N/A')}
+Close Date: {account.get('close_date', 'N/A')}"""
+
+    # Recent activities
+    recent_activities = [
+        a for a in data["activities"]
+        if a["account_id"] == account_id
+    ]
+    recent_activities.sort(key=lambda a: a.get("date", ""), reverse=True)
+    recent_activities = recent_activities[:10]
+
+    activity_context = ""
+    if recent_activities:
+        lines = ["\nRecent activities:"]
+        for act in recent_activities:
+            lines.append(
+                f"- [{act.get('date', 'unknown')}] {act.get('type', 'unknown')}: {act.get('brief', '')[:200]}"
+            )
+        activity_context = "\n".join(lines)
+
+    # Active action cards
+    active_cards = [
+        c for c in data["action_cards"]
+        if c["account_id"] == account_id and c["status"] == "active"
+    ]
+    cards_context = ""
+    if active_cards:
+        lines = ["\nActive action cards:"]
+        for card in active_cards[:3]:
+            recs = card.get("recommendations", {})
+            actions = recs.get("immediate_actions", [])
+            pending = [a for a in actions if not a.get("completed", False)]
+            lines.append(
+                f"- Card from {card.get('generated_at', 'unknown')[:10]}: "
+                f"{len(pending)} pending actions, "
+                f"{len(recs.get('risk_flags', []))} risk flags"
+            )
+        cards_context = "\n".join(lines)
+
+    # MEDDIC status
+    meddic = compute_meddic_status(account_id)
+    meddic_summary = "\n\nMEDDIC Status:"
+    for elem, info in meddic.items():
+        meddic_summary += f"\n- {elem}: {info['status']}"
+        if info["gaps"]:
+            meddic_summary += f" ({info['gaps'][0]})"
+
+    user_prompt = f"""You are a Business Development co-pilot. The user is asking a question about an active deal.
+
+{account_context}
+{activity_context}
+{cards_context}
+{meddic_summary}
+
+User's question: {question}
+
+Provide a concise, actionable answer based on the account context above. Be specific and reference the data provided. If you don't have enough information to answer fully, state what's missing and suggest how to find it."""
+
+    context = {
+        "system_prompt": "You are an expert BD co-pilot analyzing deal data. Provide concise, actionable answers. Base your analysis strictly on the provided account context.",
+        "user_prompt": user_prompt,
+    }
+
+    import subprocess
+    import sys as _sys
+
+    analyzer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_hermes_analyzer.py")
+
+    try:
+        proc = subprocess.run(
+            [_sys.executable, analyzer_path],
+            input=json.dumps(context),
+            capture_output=True,
+            text=True,
+            timeout=_ANALYSIS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"Hermes analysis timed out after {_ANALYSIS_TIMEOUT}s."
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Hermes is not available. Ensure hermes-agent is installed and accessible."
+        )
+
+    if proc.returncode != 0:
+        stderr_msg = proc.stderr.strip()[:500] if proc.stderr else "Unknown error"
+        raise RuntimeError(f"Hermes analysis failed (exit code {proc.returncode}): {stderr_msg}")
+
+    response_text = proc.stdout.strip()
+    if not response_text:
+        stderr_msg = proc.stderr.strip()[:500] if proc.stderr else "Empty response"
+        raise RuntimeError(f"Hermes returned empty response: {stderr_msg}")
+
+    # For free-form questions, return the full text response
+    return response_text

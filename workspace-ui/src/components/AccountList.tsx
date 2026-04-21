@@ -1,13 +1,14 @@
 import { useState } from "react";
 import type { Account, DealStage } from "../types/pipeline";
 import { AccountModal } from "./AccountModal";
-import * as pipelineApi from "../lib/pipeline-api";
 
 type AccountListProps = {
   accounts: Account[];
+  healthScores: Record<string, number>;
   onAccountCreated: (account: Account) => void;
   onAccountUpdated: (account: Account) => void;
   onAccountDeleted: (id: string) => void;
+  onAccountClick: (account: Account) => void;
 };
 
 const defaultStages: DealStage[] = [
@@ -40,7 +41,26 @@ function emptyAccount(): Account {
   };
 }
 
-export function AccountList({ accounts, onAccountCreated, onAccountUpdated, onAccountDeleted }: AccountListProps) {
+function healthColor(score: number): string {
+  if (score >= 70) return "var(--green)";
+  if (score >= 40) return "var(--accent)";
+  return "var(--red)";
+}
+
+function healthLabel(score: number): string {
+  if (score >= 70) return "Healthy";
+  if (score >= 40) return "At Risk";
+  return "Critical";
+}
+
+export function AccountList({
+  accounts,
+  healthScores,
+  onAccountCreated,
+  onAccountUpdated,
+  onAccountDeleted,
+  onAccountClick,
+}: AccountListProps) {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalAccount, setModalAccount] = useState<Account | null>(null);
@@ -62,53 +82,16 @@ export function AccountList({ accounts, onAccountCreated, onAccountUpdated, onAc
     setModalOpen(true);
   }
 
-  async function handleDelete(id: string) {
-    try {
-      await pipelineApi.deleteAccount(id);
-      onAccountDeleted(id);
-    } catch (err) {
-      console.error("Failed to delete account:", err);
-    }
+  function handleDelete(id: string) {
+    onAccountDeleted(id);
   }
 
-  async function handleModalSave(account: Account) {
+  function handleModalSave(account: Account) {
     const existing = accounts.find((a) => a.id === account.id);
-    try {
-      if (existing) {
-        const updated = await pipelineApi.updateAccount(account.id, {
-          name: account.name,
-          industry: account.industry,
-          description: account.description,
-          deal_value: account.deal_value,
-          currency: account.currency,
-          probability: account.probability,
-          stage: account.stage,
-          close_date: account.close_date,
-          champion: account.champion,
-          economic_buyer: account.economic_buyer,
-          next_step: account.next_step,
-          next_step_date: account.next_step_date,
-        });
-        onAccountUpdated(updated);
-      } else {
-        const created = await pipelineApi.createAccount({
-          name: account.name,
-          industry: account.industry,
-          description: account.description,
-          deal_value: account.deal_value,
-          currency: account.currency,
-          probability: account.probability,
-          stage: account.stage,
-          close_date: account.close_date,
-          champion: account.champion,
-          economic_buyer: account.economic_buyer,
-          next_step: account.next_step,
-          next_step_date: account.next_step_date,
-        });
-        onAccountCreated(created);
-      }
-    } catch (err) {
-      console.error("Failed to save account:", err);
+    if (existing) {
+      onAccountUpdated({ ...account, updated_at: new Date().toISOString() });
+    } else {
+      onAccountCreated(account);
     }
     setModalOpen(false);
     setModalAccount(null);
@@ -152,6 +135,7 @@ export function AccountList({ accounts, onAccountCreated, onAccountUpdated, onAc
             <th>Stage</th>
             <th>Value</th>
             <th>Probability</th>
+            <th>Health</th>
             <th>Next Step</th>
             <th>Actions</th>
           </tr>
@@ -159,71 +143,88 @@ export function AccountList({ accounts, onAccountCreated, onAccountUpdated, onAc
         <tbody>
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ textAlign: "center", padding: "24px", color: "var(--text-tertiary)" }}>
+              <td colSpan={8} style={{ textAlign: "center", padding: "24px", color: "var(--text-tertiary)" }}>
                 {search ? "No accounts match your search" : "No accounts yet. Add one to get started."}
               </td>
             </tr>
           )}
-          {filtered.map((account) => (
-            <tr key={account.id} className="account-list__row">
-              <td>
-                <div className="account-list__name">{account.name}</div>
-                {account.description && (
-                  <div className="account-list__desc">{account.description}</div>
-                )}
-              </td>
-              <td>{account.industry || "\u2014"}</td>
-              <td>
-                <span className={`pipeline-badge pipeline-badge--${account.stage}`}>
-                  {stageLabel(account.stage)}
-                </span>
-              </td>
-              <td>
-                {account.deal_value > 0
-                  ? `${account.currency} ${account.deal_value.toLocaleString()}`
-                  : "\u2014"}
-              </td>
-              <td>{account.probability > 0 ? `${account.probability}%` : "\u2014"}</td>
-              <td>
-                {account.next_step ? (
-                  <div>
-                    <div>{account.next_step}</div>
-                    {account.next_step_date && (
-                      <div className="account-list__meta">{account.next_step_date}</div>
-                    )}
+          {filtered.map((account) => {
+            const score = healthScores[account.id] ?? 0;
+            return (
+              <tr key={account.id} className="account-list__row">
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  <div className="account-list__name">{account.name}</div>
+                  {account.description && (
+                    <div className="account-list__desc">{account.description}</div>
+                  )}
+                </td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>{account.industry || "\u2014"}</td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  <span className={`pipeline-badge pipeline-badge--${account.stage}`}>
+                    {stageLabel(account.stage)}
+                  </span>
+                </td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  {account.deal_value > 0
+                    ? `${account.currency} ${account.deal_value.toLocaleString()}`
+                    : "\u2014"}
+                </td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  {account.probability > 0 ? `${account.probability}%` : "\u2014"}
+                </td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  {score > 0 ? (
+                    <span className="account-list__health-score" style={{ color: healthColor(score) }}>
+                      {score}
+                      <span className="account-list__health-label" style={{ color: healthColor(score) }}>
+                        {" "}{healthLabel(score)}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="account-list__health-score account-list__health-score--none">N/A</span>
+                  )}
+                </td>
+                <td onClick={() => onAccountClick(account)} style={{ cursor: "pointer" }}>
+                  {account.next_step ? (
+                    <div>
+                      <div>{account.next_step}</div>
+                      {account.next_step_date && (
+                        <div className="account-list__meta">{account.next_step_date}</div>
+                      )}
+                    </div>
+                  ) : (
+                    "\u2014"
+                  )}
+                </td>
+                <td>
+                  <div className="account-list__actions">
+                    <button
+                      className="icon-btn icon-btn--small"
+                      onClick={() => handleEdit(account)}
+                      title="Edit"
+                      type="button"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="icon-btn icon-btn--small icon-btn--danger"
+                      onClick={() => handleDelete(account.id)}
+                      title="Delete"
+                      type="button"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    </button>
                   </div>
-                ) : (
-                  "\u2014"
-                )}
-              </td>
-              <td>
-                <div className="account-list__actions">
-                  <button
-                    className="icon-btn icon-btn--small"
-                    onClick={() => handleEdit(account)}
-                    title="Edit"
-                    type="button"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                  </button>
-                  <button
-                    className="icon-btn icon-btn--small icon-btn--danger"
-                    onClick={() => handleDelete(account.id)}
-                    title="Delete"
-                    type="button"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="3 6 5 6 21 6"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
