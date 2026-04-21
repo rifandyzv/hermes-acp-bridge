@@ -269,40 +269,56 @@
     - Health check endpoint
     - Wiki document management API
 
-  - **BD Pipeline -- Phase 1: Frontend Shell (localStorage)**
+  - **BD Pipeline -- All 4 Phases Complete**
+    An AI-native BD co-pilot for tracking sales accounts through the deal
+    lifecycle. Core loop: BD logs activity --> Hermes analyzes --> Action
+    Card generated --> BD acts --> Repeat.
+
+    Phase 1 -- Frontend Shell (localStorage):
     - Third sidebar tab "Pipeline" with briefcase icon (rail + expanded)
-    - Pipeline page with 3 sub-views: Accounts, Activities, Action Cards
-    - Account list with full CRUD (add/edit/delete) and search filter
-    - Activity log modal: log meeting/call/email/note with free-text brief
-    - Activity feed: chronological display with type filter
-    - Action Card component: renders Hermes recommendation cards with
-      Immediate Actions, MEDDIC Gaps, Stakeholder Strategy, Next Meeting Agenda, Risk Flags
-    - Account detail panel: slide-over showing account details + activity history
-    - "Hermes Recommendation" placeholder button (generates mock cards for now)
-    - All data persisted in localStorage under `hermes-pipeline-data`
-    - TypeScript types at `workspace-ui/src/types/pipeline.ts`
-    - Files created: PipelinePage.tsx, AccountList.tsx, ActivityFeed.tsx,
-      ActionCard.tsx, ActivityLogModal.tsx
-    - Files modified: App.tsx, SessionSidebar.tsx, styles.css
-    - Verified: `npx tsc --noEmit` passes, `npx vite build` succeeds
+    - Pipeline page with 4 sub-views: Accounts, Activities, Action Cards, Board
+    - Account CRUD, activity logging modal, action card display
+    - Account detail slide-over panel with 5 tabs (Overview, MEDDIC,
+      Activities, Action Cards, Ask Hermes)
+    - Files: PipelinePage.tsx, AccountList.tsx, ActivityFeed.tsx,
+      ActionCard.tsx, ActivityLogModal.tsx, AccountModal.tsx,
+      AccountDetailPanel.tsx, MeddicTracker.tsx, PipelineBoard.tsx
+
+    Phase 2 -- Bridge Backend + Persistence:
+    - pipeline_manager.py: CRUD for accounts/activities/action_cards
+    - JSON storage at ~/.hermes/bd/pipeline.json with backup-on-write
+    - 8 REST endpoints under /api/pipeline/
+    - Files: pipeline_manager.py, pipeline-api.ts, app.py additions
+
+    Phase 3 -- Hermes Agentic Analysis:
+    - "Hermes Recommendation" button spawns AIAgent subprocess
+    - Generates structured Action Cards: Immediate Actions, MEDDIC Gaps,
+      Stakeholder Strategy, Next Meeting Agenda, Risk Flags
+    - MEDDIC-focused system prompt, JSON response parsing with fallbacks
+    - Files: _hermes_analyzer.py, analyze_activity() in pipeline_manager.py
+
+    Phase 4 -- Smart Features + Polish:
+    - Kanban board with HTML5 drag-drop across 6 deal stages
+    - MEDDIC progress tracker (6-element visual progress bar)
+    - Account health score (0-100, color-coded: green/amber/red)
+    - Action Cards dashboard with priority sorting and filtering
+    - "Ask Hermes" free-form Q&A about any account
+    - Auto-analyze on new activity, agentic recommendation loop
+
+    Total: ~40 files touched, ~5000 lines of code across 4 phases.
+    Branch: dev-chat-ux-enhancement (commits ca577e9 through c87c278)
 
   ### Development Plan
 
-  The BD Pipeline feature is tracked in a formal development plan:
+  The BD Pipeline feature development plan is archived at:
   - **Plan document**: `/home/dev/hermes-atp/PLAN.md`
+  - **Status**: All 4 phases implemented and committed
+  - **Branch**: `dev-chat-ux-enhancement` (commits ca577e9 through c87c278)
   - **Architecture**: AI-native BD co-pilot. Core loop: BD logs activity
     --> Hermes analyzes --> Action Card generated --> BD acts --> Repeat
-  - **Storage (V1)**: localStorage (Phase 1, DONE)
-  - **Storage (V2)**: Bridge-managed JSON at `~/.hermes/bd/pipeline.json` (Phase 2)
-  - **Analysis (V3)**: Hermes subprocess with BD skill-based prompt for
-    MEDDIC gap detection, stakeholder strategy, risk flags (Phase 3)
-  - **Current phase**: Phase 1 complete. Phase 2 (bridge backend) is next.
 
   ### Remaining Work
 
-  - [ ] **BD Pipeline Phase 2**: Bridge backend REST API + JSON persistence
-  - [ ] **BD Pipeline Phase 3**: Hermes agentic analysis (Action Card generation)
-  - [ ] **BD Pipeline Phase 4**: Agentic loop, Kanban board, health scores
   - [ ] Incremental message streaming (Hermes-side limitation, see Known Issues)
   - [ ] Auto-title generation for new sessions
   - [ ] Session search/filtering improvements
@@ -313,6 +329,9 @@
   - [ ] Wiki document editing interface
   - [ ] Performance optimization for large session lists
   - [ ] Comprehensive test coverage
+  - [ ] BD Pipeline: auto-analyze on new activity toggle
+  - [ ] BD Pipeline: WebSocket push for real-time card updates
+  - [ ] BD Pipeline: session-level Hermes context reuse for faster analysis
 
   ### Tech Stack
 
