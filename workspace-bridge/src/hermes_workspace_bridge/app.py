@@ -111,6 +111,14 @@ class UpdateActionCardRequest(BaseModel):
     recommendations: dict[str, Any] | None = None
 
 
+class CreateActionCardRequest(BaseModel):
+    account_id: str = Field(min_length=1)
+    account_name: str = Field(min_length=1)
+    activity_id: str = Field(min_length=1)
+    recommendations: dict[str, Any]
+    status: str = Field(min_length=1)
+
+
 class AskHermesRequest(BaseModel):
     question: str = Field(min_length=1)
 
@@ -343,6 +351,26 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
+
+    @app.put("/api/pipeline/activities/{activity_id}")
+    async def pipeline_update_activity(activity_id: str, request: CreateActivityRequest) -> dict[str, Any]:
+        updates = {k: v for k, v in request.model_dump().items() if v is not None}
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        result = update_activity(activity_id, updates)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        return result
+
+    @app.post("/api/pipeline/action-cards")
+    async def pipeline_create_action_card(request: CreateActionCardRequest) -> dict[str, Any]:
+        return create_action_card(
+            account_id=request.account_id,
+            account_name=request.account_name,
+            activity_id=request.activity_id,
+            recommendations=request.recommendations,
+            status=request.status,
+        )
 
     @app.get("/api/pipeline/action-cards")
     async def pipeline_list_action_cards() -> list[dict[str, Any]]:

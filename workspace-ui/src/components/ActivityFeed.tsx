@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ActivityLogModal } from "./ActivityLogModal";
-import * as pipelineApi from "../lib/pipeline-api";
-import type { Account, ActionCard as ActionCardType, Activity, ActivityType } from "../types/pipeline";
+import type { Account, Activity, ActivityType } from "../types/pipeline";
 
 type ActivityFeedProps = {
   activities: Activity[];
@@ -9,13 +8,7 @@ type ActivityFeedProps = {
   onActivityCreated: (activity: Activity) => void;
   onActivityUpdated: (activity: Activity) => void;
   onActivityDeleted: (id: string) => void;
-  actionCards: ActionCardType[];
-  onActionCardCreated: (card: ActionCardType) => void;
-  onActionCardUpdated: (card: ActionCardType) => void;
-  onActionCardsChange: (cards: ActionCardType[]) => void;
-  onAnalyzeComplete: () => void;
-  analyzeError: string | null;
-  onAnalyzeError: (msg: string | null) => void;
+  onOpenAnalysisChat: (activity: Activity) => void;
 };
 
 export function ActivityFeed({
@@ -24,18 +17,11 @@ export function ActivityFeed({
   onActivityCreated,
   onActivityUpdated,
   onActivityDeleted,
-  actionCards,
-  onActionCardCreated,
-  onActionCardUpdated,
-  onActionCardsChange,
-  onAnalyzeComplete,
-  analyzeError,
-  onAnalyzeError,
+  onOpenAnalysisChat,
 }: ActivityFeedProps) {
   const [showModal, setShowModal] = useState(false);
   const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<ActivityType | "all">("all");
-  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
 
   const sorted = [...activities].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -43,27 +29,6 @@ export function ActivityFeed({
     typeFilter === "all"
       ? sorted
       : sorted.filter((a) => a.type === typeFilter);
-
-  async function handleAnalyzeActivity(activity: Activity) {
-    setAnalyzingId(activity.id);
-    onAnalyzeError(null);
-    try {
-      const card = await pipelineApi.analyzeActivity(activity.id);
-      onActionCardCreated(card);
-      onActivityUpdated({
-        ...activity,
-        analyzed: true,
-        action_card_id: card.id,
-      });
-      setExpandedActivityId(activity.id);
-      onAnalyzeComplete();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Analysis failed";
-      onAnalyzeError(msg);
-    } finally {
-      setAnalyzingId(null);
-    }
-  }
 
   function activityTypeIcon(type: ActivityType) {
     switch (type) {
@@ -150,10 +115,6 @@ export function ActivityFeed({
         <div className="activity-feed__list">
           {filtered.map((activity) => {
             const isExpanded = expandedActivityId === activity.id;
-            const isAnalyzing = analyzingId === activity.id;
-            const associatedCard = activity.action_card_id
-              ? actionCards.find((c) => c.id === activity.action_card_id)
-              : null;
 
             return (
               <div key={activity.id} className={`activity-feed__item${isExpanded ? " activity-feed__item--expanded" : ""}`}>
@@ -164,45 +125,20 @@ export function ActivityFeed({
                   <div className="activity-feed__item-info">
                     <span className="activity-feed__item-type">{activity.type}</span>
                     <span className="activity-feed__item-account">{activity.account_name}</span>
-                    {associatedCard && (
-                      <div className="activity-feed__badges">
-                        {associatedCard.recommendations.immediate_actions.filter((a) => !a.completed).length > 0 && (
-                          <span className="activity-badge activity-badge--action">
-                            {associatedCard.recommendations.immediate_actions.filter((a) => !a.completed).length} actions
-                          </span>
-                        )}
-                        {associatedCard.recommendations.risk_flags.length > 0 && (
-                          <span className="activity-badge activity-badge--risk">
-                            {associatedCard.recommendations.risk_flags.length} risk
-                            {associatedCard.recommendations.risk_flags.length > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                   <div className="activity-feed__item-date">{activity.date}</div>
                   <div className="activity-feed__item-actions">
-                    {!activity.analyzed && !isAnalyzing && (
-                      <button
-                        className="btn btn--accent btn--small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAnalyzeActivity(activity);
-                        }}
-                        title="Hermes Recommendation"
-                        type="button"
-                      >
-                        Hermes Recommendation
-                      </button>
-                    )}
-                    {isAnalyzing && (
-                      <span className="btn btn--accent btn--small activity-feed__analyzing">
-                        <svg className="activity-feed__spinner" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M21 12a9 9 0 11-6.219-8.56" />
-                        </svg>
-                        Analyzing...
-                      </span>
-                    )}
+                    <button
+                      className="btn btn--accent btn--small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenAnalysisChat(activity);
+                      }}
+                      title="Analyze with Hermes"
+                      type="button"
+                    >
+                      Hermes Recommendation
+                    </button>
                     <button
                       className="icon-btn icon-btn--small"
                       onClick={(e) => {
@@ -223,66 +159,13 @@ export function ActivityFeed({
                 {isExpanded && (
                   <div className="activity-feed__item-body">
                     <p className="activity-feed__brief">{activity.brief}</p>
-
-                    {associatedCard && (
-                      <div className="activity-feed__action-summary">
-                        <h5>Actions from this activity</h5>
-                        <ul className="activity-feed__action-list">
-                          {associatedCard.recommendations.immediate_actions.slice(0, 3).map((action, i) => (
-                            <li
-                              key={i}
-                              className={`activity-feed__action-item${action.completed ? " activity-feed__action-item--completed" : ""}`}
-                            >
-                              <label className="activity-feed__action-checkbox">
-                                <input
-                                  checked={action.completed}
-                                  onChange={() => {
-                                    const updatedCard = { ...associatedCard };
-                                    updatedCard.recommendations = {
-                                      ...updatedCard.recommendations,
-                                      immediate_actions: [...updatedCard.recommendations.immediate_actions],
-                                    };
-                                    updatedCard.recommendations.immediate_actions[i] = {
-                                      ...action,
-                                      completed: !action.completed,
-                                    };
-                                    onActionCardUpdated(updatedCard);
-                                  }}
-                                  type="checkbox"
-                                />
-                                <span className="activity-feed__action-text">{action.text}</span>
-                              </label>
-                            </li>
-                          ))}
-                        </ul>
-
-                        {associatedCard.recommendations.risk_flags.length > 0 && (
-                          <div className="activity-feed__risks">
-                            <span className="activity-feed__risks-label">Risks detected:</span>
-                            {associatedCard.recommendations.risk_flags.map((risk, i) => (
-                              <span key={i} className={`activity-feed__risk-badge activity-feed__risk-badge--${risk.severity}`}>
-                                {risk.flag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {!activity.analyzed && !isAnalyzing && analyzeError && (
-                      <div className="activity-feed__hermes-prompt activity-feed__hermes-prompt--error">
-                        <p>Analysis failed</p>
-                        <p className="activity-feed__hermes-hint">{analyzeError}</p>
-                        <button
-                          className="btn btn--accent btn--small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAnalyzeActivity(activity);
-                          }}
-                          type="button"
-                        >
-                          Retry
-                        </button>
+                    {activity.analyzed && activity.action_card_id && (
+                      <div className="activity-feed__analyzed-notice">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{color: "var(--accent)"}}>
+                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                          <polyline points="22 4 12 14.01 9 11.01" />
+                        </svg>
+                        <span>Analysis complete. View results in the <strong>Action Cards</strong> tab or chat session.</span>
                       </div>
                     )}
                   </div>

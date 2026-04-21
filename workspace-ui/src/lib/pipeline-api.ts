@@ -93,7 +93,31 @@ export async function analyzeActivity(id: string): Promise<ActionCard> {
   return readJson(response);
 }
 
+export async function updateActivity(id: string, updates: Partial<Activity>): Promise<Activity> {
+  const response = await fetch(makeUrl(`/api/pipeline/activities/${id}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  return readJson(response);
+}
+
 // -- Action Cards --
+
+export async function createActionCard(card: {
+  account_id: string;
+  account_name: string;
+  activity_id: string;
+  recommendations: Record<string, unknown>;
+  status: string;
+}): Promise<ActionCard> {
+  const response = await fetch(makeUrl("/api/pipeline/action-cards"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(card),
+  });
+  return readJson(response);
+}
 
 export async function fetchActionCards(): Promise<ActionCard[]> {
   const response = await fetch(makeUrl("/api/pipeline/action-cards"));
