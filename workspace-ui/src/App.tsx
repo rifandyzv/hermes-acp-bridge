@@ -97,11 +97,33 @@ function App() {
     setActiveTab("chat");
     await loadSession(sid);
 
-    const prompt = `Analyze this BD activity and generate a structured Action Card. Output ONLY valid JSON wrapped in a code block.\n\nAccount: ${activity.account_name}\nType: ${activity.type}\nDate: ${activity.date}\nBrief: ${activity.brief}\n\nRequired JSON schema:\n{\n  "immediate_actions": [{"text": "...", "priority": "high|medium|low", "rationale": "...", "deadline": null, "completed": false}],\n  "meddic_gaps": [{"element": "...", "status": "...", "next_step": "..."}],\n  "stakeholder_actions": [{"stakeholder": "...", "role": "...", "action": "...", "framing": "..."}],\n  "next_meeting_agenda": ["..."],\n  "risk_flags": [{"flag": "...", "severity": "high|medium|low", "mitigation": "..."}]\n}`;
-    
-    setTimeout(() => {
-      handleSendPrompt(prompt);
-    }, 300);
+    const prompt = `Analyze this BD activity and generate a structured Action Card. Output ONLY valid JSON wrapped in a code block.
+
+Account: ${activity.account_name}
+Type: ${activity.type}
+Date: ${activity.date}
+Brief: ${activity.brief}
+
+Required JSON schema:
+{
+  "immediate_actions": [{"text": "...", "priority": "high|medium|low", "rationale": "...", "deadline": null, "completed": false}],
+  "meddic_gaps": [{"element": "...", "status": "...", "next_step": "..."}],
+  "stakeholder_actions": [{"stakeholder": "...", "role": "...", "action": "...", "framing": "..."}],
+  "next_meeting_agenda": ["..."],
+  "risk_flags": [{"flag": "...", "severity": "high|medium|low", "mitigation": "..."}]
+}`;
+
+    setPendingUserMessage(prompt);
+    try {
+      const response = await promptSession(sid, prompt);
+      setActiveRunId(response.run_id);
+      setPendingAssistant("");
+      setPendingThinking("");
+      setToolEvents([]);
+    } catch (err) {
+      console.error("Failed to send analysis prompt:", err);
+      setPendingUserMessage(null);
+    }
   }
 
   async function handleRename() {
