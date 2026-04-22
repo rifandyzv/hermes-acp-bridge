@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChatTranscript } from "./components/ChatTranscript";
 import { CommandPalette } from "./components/CommandPalette";
@@ -19,7 +19,6 @@ import {
   resolveApproval,
   switchModel,
 } from "./lib/api";
-import * as pipelineApi from "./lib/pipeline-api";
 import type { ApprovalState, BridgeEvent, SessionDetail, SessionSummary, ToolEvent } from "./types";
 
 type SlashCommand = {
@@ -43,7 +42,6 @@ function App() {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
   const [activeTab, setActiveTab] = useState<"chat" | "knowledge" | "pipeline">("chat");
-  const analysisSessionsRef = useRef<Record<string, { activityId: string; accountName: string }>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   async function refreshSessions(preserveSelection = true) {
@@ -84,46 +82,6 @@ function App() {
     const session = await createSession();
     await refreshSessions(false);
     await loadSession(session.session_id);
-  }
-
-  async function handleOpenAnalysisChat(activity: { id: string; account_name: string; type: string; date: string; brief: string }) {
-    const session = await createSession();
-    const sid = session.session_id;
-    analysisSessionsRef.current[sid] = {
-      activityId: activity.id,
-      accountName: activity.account_name,
-    };
-    setSelectedSessionId(sid);
-    setActiveTab("chat");
-    await loadSession(sid);
-
-    const prompt = `Analyze this BD activity and generate a structured Action Card. Output ONLY valid JSON wrapped in a code block.
-
-Account: ${activity.account_name}
-Type: ${activity.type}
-Date: ${activity.date}
-Brief: ${activity.brief}
-
-Required JSON schema:
-{
-  "immediate_actions": [{"text": "...", "priority": "high|medium|low", "rationale": "...", "deadline": null, "completed": false}],
-  "meddic_gaps": [{"element": "...", "status": "...", "next_step": "..."}],
-  "stakeholder_actions": [{"stakeholder": "...", "role": "...", "action": "...", "framing": "..."}],
-  "next_meeting_agenda": ["..."],
-  "risk_flags": [{"flag": "...", "severity": "high|medium|low", "mitigation": "..."}]
-}`;
-
-    setPendingUserMessage(prompt);
-    try {
-      const response = await promptSession(sid, prompt);
-      setActiveRunId(response.run_id);
-      setPendingAssistant("");
-      setPendingThinking("");
-      setToolEvents([]);
-    } catch (err) {
-      console.error("Failed to send analysis prompt:", err);
-      setPendingUserMessage(null);
-    }
   }
 
   async function handleRename() {
@@ -294,41 +252,6 @@ Required JSON schema:
     return () => window.removeEventListener("keydown", handleKeydown);
   }, []);
 
-  // Auto-save analysis results from chat sessions back to pipeline
-  useEffect(() => {
-    if (!selectedSessionId || !selectedSession) return;
-    const meta = analysisSessionsRef.current[selectedSessionId];
-    if (!meta) return;
-
-    const isRunning = activeRunId !== null || toolEvents.some((t) => t.status === "running");
-    if (isRunning) return;
-
-    const lastAssistant = [...selectedSession.messages].reverse().find((m) => m.role === "assistant");
-    if (!lastAssistant?.content) return;
-
-    try {
-      const jsonMatch = lastAssistant.content.match(/```json\s*([\s\S]*?)\s*```/) ||
-                        lastAssistant.content.match(/```([\s\S]*?)```/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : lastAssistant.content;
-      const parsed = JSON.parse(jsonStr);
-      
-      if (parsed.immediate_actions) {
-        pipelineApi.createActionCard({
-          account_id: meta.activityId,
-          account_name: meta.accountName,
-          activity_id: meta.activityId,
-          recommendations: parsed,
-          status: "active",
-        }).then((card) => {
-          pipelineApi.updateActivity(meta.activityId, { analyzed: true, action_card_id: card.id }).catch(() => {});
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.warn("Failed to parse analysis JSON from chat:", e);
-    }
-    delete analysisSessionsRef.current[selectedSessionId];
-  }, [selectedSessionId, selectedSession, activeRunId, toolEvents]);
-
   const slashCommands = availableCommands.map((cmd) => ({
     id: `slash-${cmd.name}`,
     label: `/${cmd.name}`,
@@ -462,7 +385,7 @@ Required JSON schema:
           </div>
         ) : (
           <div className="pipeline-pane">
-            <PipelinePage onOpenAnalysisChat={handleOpenAnalysisChat} />
+            <PipelinePage />
           </div>
         )}
       </main>

@@ -109,11 +109,7 @@ function countRisks(card: ActionCardType): number {
   return card.recommendations.risk_flags.length;
 }
 
-type PipelinePageProps = {
-  onOpenAnalysisChat: (activity: Activity) => void;
-};
-
-export function PipelinePage({ onOpenAnalysisChat }: PipelinePageProps) {
+export function PipelinePage() {
   const [data, setData] = useState<PipelineData>(defaultData);
   const [activeTab, setActiveTab] = useState<PipelineTab>("accounts");
   const [loading, setLoading] = useState(true);
@@ -345,7 +341,10 @@ export function PipelinePage({ onOpenAnalysisChat }: PipelinePageProps) {
             onActivityCreated={handleActivityCreated}
             onActivityUpdated={handleActivityUpdated}
             onActivityDeleted={handleActivityDeleted}
-            onOpenAnalysisChat={onOpenAnalysisChat}
+            actionCards={data.action_cards}
+            onActionCardCreated={handleActionCardCreated}
+            onActionCardUpdated={handleActionCardUpdated}
+            onActionCardsChange={handleActionCardsChange}
           />
         )}
         {activeTab === "action-cards" && (
