@@ -204,7 +204,7 @@ export type InputResponse = {
 export type WikiDocument = {
   id: string;
   title: string;
-  type: "entity" | "concept" | "comparison" | "query" | "raw";
+  type: "entity" | "concept" | "comparison" | "query" | "raw" | "deliverable";
   path: string;
   size: number;
   modified: number;

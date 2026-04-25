@@ -159,3 +159,17 @@ export async function searchWikiDocuments(query: string): Promise<WikiDocument[]
   const response = await fetch(makeUrl(`/api/wiki/search?q=${encodeURIComponent(query)}`));
   return readJson(response);
 }
+
+export async function saveWikiDocument(params: {
+  path: string;
+  content: string;
+  title?: string;
+  type?: string;
+}): Promise<WikiDocument> {
+  const response = await fetch(makeUrl("/api/wiki/save-document"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  return readJson(response);
+}

@@ -222,6 +222,7 @@ function TypeBadge({ type }: { type: string }) {
     comparison: "Comparison",
     query: "Query",
     raw: "Upload",
+    deliverable: "Deliverable",
   };
   return <span className="type-badge">{labels[type] || type}</span>;
 }

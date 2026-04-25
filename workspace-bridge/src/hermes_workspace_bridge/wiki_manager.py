@@ -22,7 +22,7 @@ def ensure_wiki_structure() -> Path:
     if not wiki.exists():
         wiki.mkdir(parents=True, exist_ok=True)
     for subdir in ["raw", "raw/articles", "raw/papers", "raw/assets",
-                   "entities", "concepts", "comparisons", "queries"]:
+                   "entities", "concepts", "comparisons", "queries", "deliverables"]:
         (wiki / subdir).mkdir(parents=True, exist_ok=True)
     # Create SCHEMA.md if missing
     schema = wiki / "SCHEMA.md"
@@ -69,6 +69,28 @@ def list_documents() -> list[dict[str, Any]]:
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
                 "section": section,
+            })
+
+    # Scan deliverables (programmatically generated documents)
+    deliverables_dir = wiki / "deliverables"
+    if deliverables_dir.exists():
+        for md_file in sorted(deliverables_dir.rglob("*.md")):
+            content = md_file.read_text()
+            title = md_file.stem.replace("-", " ").title()
+            fm = re.search(r"^---\n(.*?)\n---", content, re.DOTALL)
+            if fm:
+                title_m = re.search(r"title:\s*(.+)", fm.group(1))
+                if title_m:
+                    title = title_m.group(1).strip().strip("\"'")
+            stat = md_file.stat()
+            docs.append({
+                "id": str(md_file.relative_to(wiki)),
+                "title": title,
+                "type": "deliverable",
+                "path": str(md_file.relative_to(wiki)),
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+                "section": "deliverables",
             })
 
     # Scan raw uploaded files
@@ -206,3 +228,55 @@ def get_wiki_index() -> str:
     wiki = ensure_wiki_structure()
     index = wiki / "index.md"
     return index.read_text(encoding="utf-8") if index.exists() else ""
+
+
+def save_document(path: str, content: str, title: str | None = None, doc_type: str | None = None) -> dict[str, Any]:
+    """Save a markdown document to the wiki's deliverables/ directory. Returns file metadata."""
+    import re as _re
+    from datetime import date as _date
+
+    wiki = ensure_wiki_structure()
+
+    # Sanitize the path — only allow safe characters
+    safe_path = _re.sub(r"[^\w\-/]", "_", path)
+    # Ensure .md extension
+    if not safe_path.endswith(".md"):
+        safe_path = safe_path + ".md"
+
+    dest = wiki / "deliverables" / safe_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Prevent path traversal
+    dest_resolved = dest.resolve()
+    if not str(dest_resolved).startswith(str((wiki / "deliverables").resolve())):
+        raise ValueError("Invalid document path")
+
+    # Build frontmatter if not already present
+    if not content.startswith("---"):
+        doc_title = title or safe_path.replace(".md", "").replace("-", " ").title()
+        today = _date.today().isoformat()
+        type_field = doc_type or "deliverable"
+        frontmatter = f"""---
+title: "{doc_title}"
+created: {today}
+updated: {today}
+type: {type_field}
+sources: []
+---
+
+"""
+        content = frontmatter + content
+
+    dest.write_text(content, encoding="utf-8")
+
+    stat = dest.stat()
+    return {
+        "id": str(dest.relative_to(wiki)),
+        "title": title or dest.stem.replace("-", " ").title(),
+        "path": str(dest.relative_to(wiki)),
+        "size": stat.st_size,
+        "modified": stat.st_mtime,
+        "type": "deliverable",
+        "section": "deliverables",
+        "mime": "text/markdown",
+    }

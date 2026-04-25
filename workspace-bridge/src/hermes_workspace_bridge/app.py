@@ -32,6 +32,7 @@ from .wiki_manager import (
     get_document,
     get_wiki_index,
     list_documents,
+    save_document,
     search_documents,
     upload_file,
 )
@@ -64,6 +65,13 @@ class PromptResponseRequest(BaseModel):
 
 class WikiSearchRequest(BaseModel):
     query: str = Field(min_length=1)
+
+
+class SaveDocumentRequest(BaseModel):
+    path: str = Field(min_length=1)
+    content: str
+    title: str | None = None
+    type: str | None = None
 
 
 class CreateAccountRequest(BaseModel):
@@ -279,6 +287,18 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
     @app.get("/api/wiki/index")
     async def wiki_index() -> dict[str, str]:
         return {"content": get_wiki_index()}
+
+    @app.post("/api/wiki/save-document")
+    async def wiki_save_document(request: SaveDocumentRequest) -> dict[str, Any]:
+        try:
+            return save_document(
+                path=request.path,
+                content=request.content,
+                title=request.title,
+                doc_type=request.type,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     # -- Pipeline API endpoints --
 
