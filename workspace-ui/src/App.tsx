@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ChatTranscript } from "./components/ChatTranscript";
 import { CommandPalette } from "./components/CommandPalette";
@@ -20,16 +20,51 @@ import {
   switchModel,
 } from "./lib/api";
 import type { ApprovalState, BridgeEvent, SessionDetail, SessionSummary, ToolEvent } from "./types";
+import type { DelegateActionRequest } from "./types/pipeline";
 
 type SlashCommand = {
   name: string;
   description: string;
 };
 
+function truncateTitle(text: string, maxLength: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1).trim()}...`;
+}
+
+function buildDelegationPrompt({ account, accountName, action, actionIndex, activityId, cardId }: DelegateActionRequest): string {
+  const accountLines = account
+    ? [
+        `Account: ${account.name}`,
+        `Industry: ${account.industry || "Not specified"}`,
+        `Deal stage: ${account.stage}`,
+        `Deal value: ${account.deal_value ? `${account.currency} ${account.deal_value.toLocaleString()}` : "Not specified"}`,
+        `Probability: ${account.probability ? `${account.probability}%` : "Not specified"}`,
+        `Champion: ${account.champion || "Not identified"}`,
+        `Economic buyer: ${account.economic_buyer || "Not identified"}`,
+        `Next step: ${account.next_step || "Not specified"}`,
+        `Close date: ${account.close_date || "Not specified"}`,
+      ]
+    : [`Account: ${accountName}`];
+
+  return `Task:
+${action.text}
+
+Priority: ${action.priority}
+Rationale: ${action.rationale || "Not provided"}
+Deadline: ${action.deadline || "Not specified"}
+Source: action card ${cardId}, activity ${activityId}, item ${actionIndex + 1}
+
+Account context:
+${accountLines.join("\n")}`;
+}
+
 function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
+  const selectedSessionIdRef = useRef<string | null>(null);
   const [pendingAssistant, setPendingAssistant] = useState("");
   const [pendingThinking, setPendingThinking] = useState("");
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
@@ -44,23 +79,28 @@ function App() {
   const [activeTab, setActiveTab] = useState<"chat" | "knowledge" | "pipeline">("chat");
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  function selectSession(sessionId: string | null) {
+    selectedSessionIdRef.current = sessionId;
+    setSelectedSessionId(sessionId);
+  }
+
   async function refreshSessions(preserveSelection = true) {
     const nextSessions = await fetchSessions();
     setSessions(nextSessions);
-    if (!preserveSelection || !selectedSessionId) {
-      setSelectedSessionId(nextSessions[0]?.session_id ?? null);
+    if (!preserveSelection || !selectedSessionIdRef.current) {
+      selectSession(nextSessions[0]?.session_id ?? null);
     }
   }
 
   async function loadSession(sessionId: string) {
     const session = await fetchSession(sessionId);
     setSelectedSession(session);
-    setSelectedSessionId(session.session_id);
+    selectSession(session.session_id);
     setToolEvents([]);
   }
 
   async function ensureSession(): Promise<string> {
-    if (selectedSessionId) return selectedSessionId;
+    if (selectedSessionIdRef.current) return selectedSessionIdRef.current;
     const session = await createSession();
     await refreshSessions(false);
     await loadSession(session.session_id);
@@ -85,40 +125,67 @@ function App() {
   }
 
   async function handleRename() {
-    if (!selectedSessionId) return;
+    if (!selectedSessionIdRef.current) return;
     const nextTitle = window.prompt("Rename this chat", selectedSession?.title ?? "");
     if (nextTitle === null) return;
-    await renameSession(selectedSessionId, nextTitle);
+    await renameSession(selectedSessionIdRef.current, nextTitle);
     await refreshSessions();
-    await loadSession(selectedSessionId);
+    await loadSession(selectedSessionIdRef.current);
   }
 
   async function handleRetry() {
-    if (!selectedSession?.messages.length || !selectedSessionId) return;
+    if (!selectedSession?.messages.length || !selectedSessionIdRef.current) return;
     const lastUser = [...selectedSession.messages].reverse().find((m) => m.role === "user");
     if (!lastUser?.content) return;
     await handleSendPrompt(lastUser.content);
   }
 
   async function handleInterrupt() {
-    if (!selectedSessionId) return;
-    await cancelSession(selectedSessionId);
+    if (!selectedSessionIdRef.current) return;
+    await cancelSession(selectedSessionIdRef.current);
   }
 
   async function handleFork() {
-    if (!selectedSessionId) return;
-    const forked = await forkSession(selectedSessionId);
+    if (!selectedSessionIdRef.current) return;
+    const forked = await forkSession(selectedSessionIdRef.current);
     await refreshSessions(false);
     await loadSession(forked.session_id);
   }
 
   async function handleSwitchModel() {
-    if (!selectedSessionId) return;
+    if (!selectedSessionIdRef.current) return;
     const modelId = window.prompt("Switch model", selectedSession?.model ?? "");
     if (!modelId) return;
-    await switchModel(selectedSessionId, modelId);
+    await switchModel(selectedSessionIdRef.current, modelId);
     await refreshSessions();
-    await loadSession(selectedSessionId);
+    await loadSession(selectedSessionIdRef.current);
+  }
+
+  async function handleDelegateAction(request: DelegateActionRequest) {
+    const prompt = buildDelegationPrompt(request);
+    const title = `Delegate: ${truncateTitle(request.action.text, 54)}`;
+    setErrorLabel(null);
+    setActiveTab("chat");
+    setPendingAssistant("");
+    setPendingThinking("");
+    setToolEvents([]);
+    setPendingUserMessage(prompt);
+
+    try {
+      const created = await createSession(selectedSession?.cwd);
+      selectSession(created.session_id);
+      setSelectedSession(created);
+
+      const renamed = await renameSession(created.session_id, title);
+      setSelectedSession(renamed);
+      await refreshSessions(true);
+
+      const response = await promptSession(created.session_id, prompt);
+      setActiveRunId(response.run_id);
+    } catch (error) {
+      setErrorLabel(error instanceof Error ? error.message : "Failed to delegate action to Hermes");
+      setActiveRunId(null);
+    }
   }
 
   useEffect(() => {
@@ -138,11 +205,12 @@ function App() {
 
   useEffect(() => {
     if (!selectedSessionId) return;
+    if (selectedSession?.session_id === selectedSessionId) return;
     setPendingAssistant("");
     setPendingThinking("");
     setToolEvents([]);
     void loadSession(selectedSessionId);
-  }, [selectedSessionId]);
+  }, [selectedSession?.session_id, selectedSessionId]);
 
   useEffect(() => {
     const socket = new WebSocket(createSocketUrl());
@@ -165,7 +233,7 @@ function App() {
         return;
       }
 
-      if (bridgeEvent.session_id && bridgeEvent.session_id === selectedSessionId) {
+      if (bridgeEvent.session_id && bridgeEvent.session_id === selectedSessionIdRef.current) {
         if (bridgeEvent.type === "message.delta") {
           setPendingAssistant((current) => current + (bridgeEvent.text ?? ""));
         }
@@ -209,7 +277,7 @@ function App() {
         if (bridgeEvent.type === "session.snapshot") {
           setPendingAssistant("");
           setPendingThinking("");
-          if (selectedSessionId) void loadSession(selectedSessionId);
+          if (selectedSessionIdRef.current) void loadSession(selectedSessionIdRef.current);
           void refreshSessions();
           setActiveRunId(null);
         }
@@ -235,7 +303,7 @@ function App() {
     return () => {
       socket.close();
     };
-  }, [selectedSessionId]);
+  }, []);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
@@ -320,7 +388,7 @@ function App() {
         activeTab={activeTab}
         isOpen={sidebarOpen}
         onNewChat={() => void handleNewChat()}
-        onSelect={setSelectedSessionId}
+        onSelect={selectSession}
         onTabChange={setActiveTab}
         onToggle={() => setSidebarOpen((v) => !v)}
         selectedSessionId={selectedSessionId}
@@ -385,7 +453,7 @@ function App() {
           </div>
         ) : (
           <div className="pipeline-pane">
-            <PipelinePage />
+            <PipelinePage onDelegateAction={(request) => void handleDelegateAction(request)} />
           </div>
         )}
       </main>

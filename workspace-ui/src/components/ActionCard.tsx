@@ -1,12 +1,19 @@
 import { useState } from "react";
-import type { ActionCard as ActionCardType, ActionItem, CardStatus } from "../types/pipeline";
+import type {
+  Account,
+  ActionCard as ActionCardType,
+  CardStatus,
+  DelegateActionRequest,
+} from "../types/pipeline";
 
 type ActionCardProps = {
+  account?: Account | null;
   card: ActionCardType;
   onChange: (card: ActionCardType) => void;
+  onDelegateAction?: (request: DelegateActionRequest) => void;
 };
 
-export function ActionCard({ card, onChange }: ActionCardProps) {
+export function ActionCard({ account = null, card, onChange, onDelegateAction }: ActionCardProps) {
   function toggleAction(index: number) {
     const actions = [...card.recommendations.immediate_actions];
     actions[index] = { ...actions[index], completed: !actions[index].completed };
@@ -78,17 +85,37 @@ export function ActionCard({ card, onChange }: ActionCardProps) {
                     key={i}
                     className={`action-card__action-item${action.completed ? " action-card__action-item--completed" : ""} ${priorityClass(action.priority)}`}
                   >
-                    <label className="action-card__action-checkbox">
-                      <input
-                        checked={action.completed}
-                        onChange={() => toggleAction(i)}
-                        type="checkbox"
-                      />
-                      <span className="action-card__action-text">{action.text}</span>
-                    </label>
-                    <span className={`action-card__priority-badge action-card__priority-badge--${action.priority}`}>
-                      {action.priority}
-                    </span>
+                    <div className="action-card__action-main">
+                      <label className="action-card__action-checkbox">
+                        <input
+                          checked={action.completed}
+                          onChange={() => toggleAction(i)}
+                          type="checkbox"
+                        />
+                        <span className="action-card__action-text">{action.text}</span>
+                      </label>
+                      <div className="action-card__action-controls">
+                        <span className={`action-card__priority-badge action-card__priority-badge--${action.priority}`}>
+                          {action.priority}
+                        </span>
+                        {onDelegateAction && card.status === "active" && !action.completed && (
+                          <button
+                            className="action-card__delegate-btn"
+                            onClick={() => onDelegateAction({
+                              account,
+                              action,
+                              actionIndex: i,
+                              accountName: card.account_name,
+                              activityId: card.activity_id,
+                              cardId: card.id,
+                            })}
+                            type="button"
+                          >
+                            Delegate to Hermes
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     {action.rationale && (
                       <p className="action-card__rationale">{action.rationale}</p>
                     )}

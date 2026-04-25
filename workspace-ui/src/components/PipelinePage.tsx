@@ -9,6 +9,7 @@ import type {
   ActionCard as ActionCardType,
   Activity,
   CardStatus,
+  DelegateActionRequest,
   PipelineData,
   PipelineTab,
 } from "../types/pipeline";
@@ -109,7 +110,11 @@ function countRisks(card: ActionCardType): number {
   return card.recommendations.risk_flags.length;
 }
 
-export function PipelinePage() {
+type PipelinePageProps = {
+  onDelegateAction?: (request: DelegateActionRequest) => void;
+};
+
+export function PipelinePage({ onDelegateAction }: PipelinePageProps) {
   const [data, setData] = useState<PipelineData>(defaultData);
   const [activeTab, setActiveTab] = useState<PipelineTab>("accounts");
   const [loading, setLoading] = useState(true);
@@ -395,6 +400,7 @@ export function PipelinePage() {
                   const pendingActions = card.recommendations.immediate_actions.filter((a) => !a.completed);
                   const riskCount = countRisks(card);
                   const isExpanded = expandedCards.has(card.id);
+                  const account = data.accounts.find((a) => a.id === card.account_id) ?? null;
                   return (
                     <div key={card.id} className={`action-card action-card--${card.status}`}>
                       <div className="action-card__header" onClick={() => {
@@ -424,7 +430,9 @@ export function PipelinePage() {
 
                       {isExpanded && (
                         <ActionCard
+                          account={account}
                           card={card}
+                          onDelegateAction={onDelegateAction}
                           onChange={(updated) => handleActionCardUpdated(updated)}
                         />
                       )}

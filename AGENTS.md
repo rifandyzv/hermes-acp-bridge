@@ -305,6 +305,22 @@
     - "Ask Hermes" free-form Q&A about any account
     - Auto-analyze on new activity, agentic recommendation loop
 
+    Delegate to Hermes -- Action Item Execution:
+    - Each Immediate Action row in an expanded Action Card has a red outlined
+      "Delegate to Hermes" button.
+    - Clicking the button creates a fresh Hermes chat session, renames it to
+      `Delegate: <action text>`, switches the workspace to Chat, and immediately
+      sends the selected action as the first prompt.
+    - Delegation is intentionally one action per chat. Re-clicking the same
+      action creates another fresh chat rather than reopening or reusing a prior
+      session.
+    - The delegated prompt is intentionally minimal and contains only the clicked
+      task, priority, rationale, deadline, source IDs, and minimal account
+      context. It does not include sibling action items, full action-card
+      recommendations, role prompting, or execution instructions.
+    - Files: App.tsx, ActionCard.tsx, PipelinePage.tsx, types.ts,
+      types/pipeline.ts, styles.css
+
     Total: ~40 files touched, ~5000 lines of code across 4 phases.
     Branch: dev-chat-ux-enhancement (commits ca577e9 through c87c278)
 

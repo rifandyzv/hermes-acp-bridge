@@ -2116,6 +2116,13 @@ button {
   border-left: 3px solid var(--border);
 }
 
+.action-card__action-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .action-card__action-item--high-priority {
   border-left-color: var(--red);
 }
@@ -2134,9 +2141,11 @@ button {
 
 .action-card__action-checkbox {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   cursor: pointer;
+  flex: 1;
+  min-width: 0;
 }
 
 .action-card__action-checkbox input[type="checkbox"] {
@@ -2148,6 +2157,42 @@ button {
 .action-card__action-text {
   font-size: 0.875rem;
   color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.action-card__action-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.action-card__delegate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.03);
+  color: var(--red);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+
+.action-card__delegate-btn:hover {
+  background: var(--red-subtle);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+  transform: translateY(-1px);
+}
+
+.action-card__delegate-btn:active {
+  transform: translateY(0);
 }
 
 .action-card__priority-badge {
@@ -2158,6 +2203,10 @@ button {
   padding: 1px 6px;
   border-radius: var(--radius-full);
   margin-left: 8px;
+}
+
+.action-card__action-controls .action-card__priority-badge {
+  margin-left: 0;
 }
 
 .action-card__priority-badge--high {
@@ -3361,6 +3410,21 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .action-card__action-main {
+    flex-direction: column;
+  }
+
+  .action-card__action-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .action-card__delegate-btn {
+    flex: 1;
+  }
 }
 
 /* ===== Account List Health Score ===== */

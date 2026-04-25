@@ -92,3 +92,12 @@ export interface PipelineData {
   activities: Activity[];
   action_cards: ActionCard[];
 }
+
+export interface DelegateActionRequest {
+  account: Account | null;
+  action: ActionItem;
+  actionIndex: number;
+  accountName: string;
+  activityId: string;
+  cardId: string;
+}

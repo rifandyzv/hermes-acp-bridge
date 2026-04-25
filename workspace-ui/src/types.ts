@@ -84,6 +84,29 @@ export type BridgeEvent = {
   queued_count?: number;
   current_run_id?: string;
   current_turn_id?: number;
+  approval_id?: string;
+  tool_call?: Record<string, unknown>;
+  options?: string[];
+  commands?: Array<{
+    name: string;
+    description?: string;
+  }>;
+};
+
+export type ApprovalState = {
+  approvalId: string;
+  sessionId: string;
+  toolCall: Record<string, unknown>;
+  options: string[];
+};
+
+export type ToolEvent = {
+  id: string;
+  type: "tool.started" | "tool.completed";
+  title?: string;
+  text?: string;
+  timestamp: number;
+  success?: boolean;
 };
 
 export type LiveTool = {
