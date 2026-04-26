@@ -11,6 +11,7 @@ import {
   createSession,
   createSocketUrl,
   fetchHealth,
+  fetchRecentWikiDocuments,
   fetchSession,
   fetchSessions,
   forkSession,
@@ -83,6 +84,8 @@ function App() {
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
   const [activeTab, setActiveTab] = useState<"chat" | "knowledge" | "pipeline">("chat");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [wikiNotification, setWikiNotification] = useState<{ title: string; path: string } | null>(null);
+  const [knowledgeRefreshKey, setKnowledgeRefreshKey] = useState(0);
 
   function selectSession(sessionId: string | null) {
     selectedSessionIdRef.current = sessionId;
@@ -174,6 +177,21 @@ function App() {
       void loadSession(sessionId, { expectedRunId: finishingRunId, requireCurrent: true });
     }
     void refreshSessions();
+
+    // Check for new wiki documents created during this run
+    void checkForNewWikiDocuments();
+  }
+
+  async function checkForNewWikiDocuments() {
+    try {
+      const recent = await fetchRecentWikiDocuments(5);
+      if (recent.length > 0) {
+        const latest = recent[0];
+        setWikiNotification({ title: latest.title, path: latest.path });
+      }
+    } catch {
+      // Ignore errors — non-critical feature
+    }
   }
 
   async function handleSendPrompt(text: string) {
@@ -241,6 +259,12 @@ function App() {
     await switchModel(selectedSessionIdRef.current, modelId);
     await refreshSessions();
     await loadSession(selectedSessionIdRef.current);
+  }
+
+  function handleViewWikiNotification() {
+    setWikiNotification(null);
+    setKnowledgeRefreshKey((k) => k + 1);
+    setActiveTab("knowledge");
   }
 
   async function handleDelegateAction(request: DelegateActionRequest) {
@@ -591,7 +615,7 @@ function App() {
           </div>
         ) : activeTab === "knowledge" ? (
           <div className="knowledge-pane">
-            <KnowledgePage />
+            <KnowledgePage refreshKey={knowledgeRefreshKey} />
           </div>
         ) : (
           <div className="pipeline-pane">
@@ -605,6 +629,31 @@ function App() {
         onClose={() => setPaletteOpen(false)}
         open={paletteOpen}
       />
+
+      {wikiNotification ? (
+        <div className="wiki-notification-overlay" role="presentation" onClick={() => setWikiNotification(null)}>
+          <div className="wiki-notification-card" onClick={(e) => e.stopPropagation()} role="alert">
+            <div className="wiki-notification-card__icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+            </div>
+            <div className="wiki-notification-card__body">
+              <p className="wiki-notification-card__title">New document saved!</p>
+              <p className="wiki-notification-card__subtitle">{wikiNotification.title}</p>
+            </div>
+            <button
+              className="wiki-notification-card__btn"
+              onClick={handleViewWikiNotification}
+              type="button"
+            >
+              View in Knowledge
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {approval ? (
         <div className="approval-overlay" role="presentation">

@@ -16,6 +16,16 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 WIKI_PATH = Path(os.path.expanduser("~/wiki")).resolve()
 
 
+def _guess_mime(path: Path) -> str:
+    if path.suffix.lower() == ".md":
+        return "text/markdown"
+    return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+
+
+def _is_text_document(path: Path, mime: str) -> bool:
+    return mime.startswith("text/") or path.suffix.lower() in {".md", ".txt"}
+
+
 def ensure_wiki_structure() -> Path:
     """Ensure the wiki directory structure exists. Returns wiki root path."""
     wiki = WIKI_PATH
@@ -69,6 +79,7 @@ def list_documents() -> list[dict[str, Any]]:
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
                 "section": section,
+                "mime": _guess_mime(md_file),
             })
 
     # Scan deliverables (programmatically generated documents)
@@ -91,6 +102,7 @@ def list_documents() -> list[dict[str, Any]]:
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
                 "section": "deliverables",
+                "mime": _guess_mime(md_file),
             })
 
     # Scan raw uploaded files
@@ -107,6 +119,7 @@ def list_documents() -> list[dict[str, Any]]:
                     "size": stat.st_size,
                     "modified": stat.st_mtime,
                     "section": "raw",
+                    "mime": _guess_mime(f),
                 })
 
     # Sort by modified date descending
@@ -124,9 +137,23 @@ def get_document(doc_path: str) -> dict[str, Any] | None:
     if not full_path.exists() or not full_path.is_file():
         return None
 
-    content = full_path.read_text(encoding="utf-8", errors="replace")
     stat = full_path.stat()
     title = full_path.stem.replace("-", " ").title()
+    mime = _guess_mime(full_path)
+    if not _is_text_document(full_path, mime):
+        return {
+            "id": str(full_path.relative_to(wiki)),
+            "title": title,
+            "path": doc_path,
+            "content": "",
+            "body": "",
+            "frontmatter": {},
+            "size": stat.st_size,
+            "modified": stat.st_mtime,
+            "mime": mime,
+        }
+
+    content = full_path.read_text(encoding="utf-8", errors="replace")
 
     # Extract frontmatter for wiki pages
     frontmatter: dict[str, Any] = {}
@@ -152,7 +179,7 @@ def get_document(doc_path: str) -> dict[str, Any] | None:
         "frontmatter": frontmatter,
         "size": stat.st_size,
         "modified": stat.st_mtime,
-        "mime": mimetypes.guess_type(str(full_path))[0] or "text/plain",
+        "mime": mime,
     }
 
 
@@ -186,7 +213,7 @@ def upload_file(file_content: bytes, filename: str) -> dict[str, Any]:
         "modified": stat.st_mtime,
         "type": "raw",
         "section": "raw",
-        "mime": mimetypes.guess_type(str(dest))[0] or "application/octet-stream",
+        "mime": _guess_mime(dest),
     }
 
 
@@ -198,7 +225,14 @@ def search_documents(query: str) -> list[dict[str, Any]]:
 
     for doc in list_documents():
         if doc["section"] == "raw":
-            continue  # Skip binary raw files from text search
+            haystack = f"{doc['title']} {doc['path']}".lower()
+            if q in haystack:
+                results.append({
+                    **doc,
+                    "snippet": doc["title"],
+                    "relevance": haystack.count(q),
+                })
+            continue
         doc_path = wiki / doc["path"]
         if not doc_path.exists():
             continue
@@ -228,6 +262,15 @@ def get_wiki_index() -> str:
     wiki = ensure_wiki_structure()
     index = wiki / "index.md"
     return index.read_text(encoding="utf-8") if index.exists() else ""
+
+
+def get_recent_documents(minutes: int = 5) -> list[dict[str, Any]]:
+    """Return documents created or modified within the last N minutes.
+    Useful for detecting new files after an agent run."""
+    import time as _time
+    cutoff = _time.time() - (minutes * 60)
+    all_docs = list_documents()
+    return [d for d in all_docs if d["modified"] >= cutoff]
 
 
 def save_document(path: str, content: str, title: str | None = None, doc_type: str | None = None) -> dict[str, Any]:

@@ -209,6 +209,7 @@ export type WikiDocument = {
   size: number;
   modified: number;
   section: string;
+  mime?: string;
   snippet?: string;
   relevance?: number;
 };

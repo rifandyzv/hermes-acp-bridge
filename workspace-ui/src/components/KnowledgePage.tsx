@@ -1,60 +1,107 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   fetchWikiDocument,
   fetchWikiDocuments,
+  getWikiRawUrl,
   searchWikiDocuments,
   uploadWikiDocument,
 } from "../lib/api";
 import type { WikiDocument, WikiDocumentDetail } from "../types";
+import { PdfViewer, DocxViewer, PptxViewer } from "./BinaryDocumentViewer";
 
-export function KnowledgePage() {
+type SelectedDocument = WikiDocumentDetail & {
+  section?: string;
+  type?: WikiDocument["type"];
+};
+
+export function KnowledgePage({ refreshKey }: { refreshKey?: number }) {
   const [documents, setDocuments] = useState<WikiDocument[]>([]);
-  const [selectedDoc, setSelectedDoc] = useState<WikiDocumentDetail | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<SelectedDocument | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [viewerError, setViewerError] = useState<string | null>(null);
+  const selectRequestIdRef = useRef(0);
 
   useEffect(() => {
-    void loadDocuments();
-  }, []);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      if (!searchQuery.trim()) {
+        void loadDocuments(controller.signal);
+        return;
+      }
+      setIsSearching(true);
+      void searchWikiDocuments(searchQuery, controller.signal)
+        .then((results) => {
+          setDocuments(results);
+          setLoadError(null);
+        })
+        .catch((err) => {
+          if (!isAbortError(err)) {
+            setLoadError(err instanceof Error ? err.message : "Search failed");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsSearching(false);
+          }
+        });
+    }, 250);
 
-  async function loadDocuments() {
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [refreshKey, searchQuery]);
+
+  async function loadDocuments(signal?: AbortSignal) {
     try {
-      const docs = await fetchWikiDocuments();
+      const docs = await fetchWikiDocuments(signal);
       setDocuments(docs);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load documents");
-    }
-  }
-
-  async function handleSearch(query: string) {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      await loadDocuments();
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const results = await searchWikiDocuments(query);
-      setDocuments(results);
-    } catch {
-      // ignore search errors
+      if (!isAbortError(err)) {
+        setLoadError(err instanceof Error ? err.message : "Failed to load documents");
+      }
     } finally {
-      setIsSearching(false);
+      if (!signal?.aborted) {
+        setIsSearching(false);
+      }
     }
   }
 
   async function handleSelectDocument(doc: WikiDocument) {
+    const requestId = selectRequestIdRef.current + 1;
+    selectRequestIdRef.current = requestId;
+    setViewerError(null);
+    const mime = getDocumentMime(doc);
+
+    if (!isTextMime(mime)) {
+      setIsSelecting(false);
+      setSelectedDoc(toSelectedDocument(doc, mime));
+      return;
+    }
+
+    setIsSelecting(true);
+    setSelectedDoc(toSelectedDocument(doc, mime));
     try {
       const detail = await fetchWikiDocument(doc.path);
-      setSelectedDoc(detail);
-    } catch {
-      // ignore
+      if (selectRequestIdRef.current === requestId) {
+        setSelectedDoc({ ...detail, section: doc.section, type: doc.type });
+      }
+    } catch (err) {
+      if (selectRequestIdRef.current === requestId) {
+        setViewerError(err instanceof Error ? err.message : "Failed to load document");
+      }
+    } finally {
+      if (selectRequestIdRef.current === requestId) {
+        setIsSelecting(false);
+      }
     }
   }
 
@@ -89,7 +136,7 @@ export function KnowledgePage() {
           <div className="knowledge-page__search">
             <input
               className="knowledge-page__search-input"
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search knowledge base..."
               type="text"
               value={searchQuery}
@@ -153,10 +200,20 @@ export function KnowledgePage() {
               <div className="knowledge-viewer__header">
                 <h3>{selectedDoc.title}</h3>
                 <span className="knowledge-viewer__meta">
-                  {formatBytes(selectedDoc.size)} &middot; {selectedDoc.mime}
+                  {formatBytes(selectedDoc.size)} &middot; {selectedDoc.mime} &middot; {formatModified(selectedDoc.modified)}
                 </span>
+                <a className="knowledge-viewer__download-link" href={getWikiRawUrl(selectedDoc.path)} download={selectedDoc.title}>
+                  Download
+                </a>
               </div>
-              {selectedDoc.mime === "text/markdown" || selectedDoc.mime === "text/plain" ? (
+              {isSelecting ? (
+                <div className="knowledge-viewer__loading"><Spinner />Loading document…</div>
+              ) : viewerError ? (
+                <div className="knowledge-viewer__error">
+                  <p>Failed to load document.</p>
+                  <p className="knowledge-viewer__error-hint">{viewerError}</p>
+                </div>
+              ) : selectedDoc.mime === "text/markdown" || selectedDoc.mime === "text/plain" ? (
                 <div className="knowledge-viewer__content markdown-body">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedDoc.body}</ReactMarkdown>
                 </div>
@@ -164,6 +221,12 @@ export function KnowledgePage() {
                 <pre className="knowledge-viewer__content knowledge-viewer__pre">
                   {selectedDoc.body}
                 </pre>
+              ) : selectedDoc.mime === "application/pdf" ? (
+                <PdfViewer docPath={selectedDoc.path} title={selectedDoc.title} />
+              ) : selectedDoc.mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? (
+                <DocxViewer docPath={selectedDoc.path} title={selectedDoc.title} />
+              ) : selectedDoc.mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ? (
+                <PptxViewer docPath={selectedDoc.path} title={selectedDoc.title} />
               ) : (
                 <div className="knowledge-viewer__binary">
                   <div className="knowledge-viewer__binary-icon">
@@ -192,6 +255,44 @@ export function KnowledgePage() {
       </div>
     </div>
   );
+}
+
+function toSelectedDocument(doc: WikiDocument, mime: string): SelectedDocument {
+  return {
+    id: doc.id,
+    title: doc.title,
+    path: doc.path,
+    content: "",
+    body: "",
+    frontmatter: {},
+    size: doc.size,
+    modified: doc.modified,
+    mime,
+    section: doc.section,
+    type: doc.type,
+  };
+}
+
+function getDocumentMime(doc: WikiDocument): string {
+  if (doc.mime) return doc.mime;
+  const ext = doc.path.split(".").pop()?.toLowerCase();
+  const mimes: Record<string, string> = {
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    md: "text/markdown",
+    pdf: "application/pdf",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    txt: "text/plain",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+  return mimes[ext ?? ""] ?? "application/octet-stream";
+}
+
+function isTextMime(mime: string): boolean {
+  return mime.startsWith("text/");
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
 }
 
 function FileIcon({ ext }: { ext: string }) {
@@ -231,4 +332,20 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatModified(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function Spinner() {
+  return (
+    <svg className="spinner-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+    </svg>
+  );
 }

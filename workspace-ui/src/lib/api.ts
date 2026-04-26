@@ -135,13 +135,13 @@ export async function respondToPromptRequest(
   await readJson(response);
 }
 
-export async function fetchWikiDocuments(): Promise<WikiDocument[]> {
-  const response = await fetch(makeUrl("/api/wiki/documents"));
+export async function fetchWikiDocuments(signal?: AbortSignal): Promise<WikiDocument[]> {
+  const response = await fetch(makeUrl("/api/wiki/documents"), { signal });
   return readJson(response);
 }
 
-export async function fetchWikiDocument(docPath: string): Promise<WikiDocumentDetail> {
-  const response = await fetch(makeUrl(`/api/wiki/documents/${docPath}`));
+export async function fetchWikiDocument(docPath: string, signal?: AbortSignal): Promise<WikiDocumentDetail> {
+  const response = await fetch(makeUrl(`/api/wiki/documents/${docPath}`), { signal });
   return readJson(response);
 }
 
@@ -155,8 +155,8 @@ export async function uploadWikiDocument(file: File): Promise<WikiDocument> {
   return readJson(response);
 }
 
-export async function searchWikiDocuments(query: string): Promise<WikiDocument[]> {
-  const response = await fetch(makeUrl(`/api/wiki/search?q=${encodeURIComponent(query)}`));
+export async function searchWikiDocuments(query: string, signal?: AbortSignal): Promise<WikiDocument[]> {
+  const response = await fetch(makeUrl(`/api/wiki/search?q=${encodeURIComponent(query)}`), { signal });
   return readJson(response);
 }
 
@@ -172,4 +172,13 @@ export async function saveWikiDocument(params: {
     body: JSON.stringify(params),
   });
   return readJson(response);
+}
+
+export async function fetchRecentWikiDocuments(minutes = 5): Promise<WikiDocument[]> {
+  const response = await fetch(makeUrl(`/api/wiki/recent?minutes=${minutes}`));
+  return readJson(response);
+}
+
+export function getWikiRawUrl(docPath: string): string {
+  return makeUrl(`/api/wiki/raw/${docPath}`);
 }

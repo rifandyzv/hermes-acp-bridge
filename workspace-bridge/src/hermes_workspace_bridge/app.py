@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import mimetypes
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
 
 from .acp_bridge import ACPBridgeService
 from .config import BridgeConfig
@@ -29,7 +30,9 @@ from .pipeline_manager import (
     update_activity,
 )
 from .wiki_manager import (
+    ensure_wiki_structure,
     get_document,
+    get_recent_documents,
     get_wiki_index,
     list_documents,
     save_document,
@@ -271,6 +274,18 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Document not found")
         return doc
 
+    @app.get("/api/wiki/raw/{doc_path:path}")
+    async def wiki_get_raw(doc_path: str):
+        """Serve raw binary files directly from the wiki directory."""
+        wiki = ensure_wiki_structure()
+        full_path = (wiki / doc_path).resolve()
+        if not str(full_path).startswith(str(wiki)):
+            raise HTTPException(status_code=403, detail="Path traversal not allowed")
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        mime = mimetypes.guess_type(str(full_path))[0] or "application/octet-stream"
+        return FileResponse(full_path, media_type=mime)
+
     @app.post("/api/wiki/upload")
     async def wiki_upload(file: UploadFile = File(...)) -> dict[str, Any]:
         content = await file.read()
@@ -287,6 +302,10 @@ def create_app(config: BridgeConfig | None = None) -> FastAPI:
     @app.get("/api/wiki/index")
     async def wiki_index() -> dict[str, str]:
         return {"content": get_wiki_index()}
+
+    @app.get("/api/wiki/recent")
+    async def wiki_recent_documents(minutes: int = 5) -> list[dict[str, Any]]:
+        return get_recent_documents(minutes=minutes)
 
     @app.post("/api/wiki/save-document")
     async def wiki_save_document(request: SaveDocumentRequest) -> dict[str, Any]:
