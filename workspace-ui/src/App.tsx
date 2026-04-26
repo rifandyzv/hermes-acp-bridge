@@ -69,6 +69,11 @@ function App() {
   const [pendingThinking, setPendingThinking] = useState("");
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const activeRunIdRef = useRef<string | null>(null);
+  const activeRunSessionIdRef = useRef<string | null>(null);
+  const finishedRunIdsRef = useRef<Set<string>>(new Set());
+  const [sendingPrompt, setSendingPrompt] = useState(false);
+  const sendingPromptRef = useRef(false);
   const [connected, setConnected] = useState(false);
   const [connectionLabel, setConnectionLabel] = useState("Connecting...");
   const [errorLabel, setErrorLabel] = useState<string | null>(null);
@@ -92,11 +97,20 @@ function App() {
     }
   }
 
-  async function loadSession(sessionId: string) {
+  async function loadSession(
+    sessionId: string,
+    options: { clearLiveState?: boolean; expectedRunId?: string | null; requireCurrent?: boolean } = {}
+  ) {
     const session = await fetchSession(sessionId);
+    if (options.requireCurrent && selectedSessionIdRef.current && selectedSessionIdRef.current !== sessionId) return;
     setSelectedSession(session);
     selectSession(session.session_id);
-    setToolEvents([]);
+    const shouldClearLiveState =
+      options.clearLiveState !== false &&
+      (!activeRunIdRef.current || activeRunIdRef.current === options.expectedRunId);
+    if (shouldClearLiveState) {
+      setToolEvents([]);
+    }
   }
 
   async function ensureSession(): Promise<string> {
@@ -107,15 +121,83 @@ function App() {
     return session.session_id;
   }
 
-  async function handleSendPrompt(text: string) {
-    setErrorLabel(null);
-    const sessionId = await ensureSession();
-    setPendingUserMessage(text);
-    const response = await promptSession(sessionId, text);
-    setActiveRunId(response.run_id);
+  function eventRunId(event: BridgeEvent): string | null {
+    return event.run_id ?? event.current_run_id ?? null;
+  }
+
+  function setSendingPromptState(nextSending: boolean) {
+    sendingPromptRef.current = nextSending;
+    setSendingPrompt(nextSending);
+  }
+
+  function startLiveRun(runId: string | null | undefined, prompt?: string | null, sessionId = selectedSessionIdRef.current): boolean {
+    if (!runId || finishedRunIdsRef.current.has(runId)) return false;
+    activeRunIdRef.current = runId;
+    activeRunSessionIdRef.current = sessionId;
+    setActiveRunId(runId);
+    setSendingPromptState(false);
+    if (prompt) {
+      setPendingUserMessage((current) => current ?? prompt);
+    }
+    return true;
+  }
+
+  function isCurrentLiveRun(event: BridgeEvent): boolean {
+    const runId = eventRunId(event);
+    if (runId && finishedRunIdsRef.current.has(runId)) return false;
+    if (!activeRunIdRef.current) return true;
+    return !runId || runId === activeRunIdRef.current;
+  }
+
+  function finishLiveRun(runId: string | null | undefined, sessionId = selectedSessionIdRef.current) {
+    const activeRunId = activeRunIdRef.current;
+    const finishingRunId = runId ?? activeRunId;
+
+    if (finishingRunId && activeRunId && finishingRunId !== activeRunId) {
+      finishedRunIdsRef.current.add(finishingRunId);
+      return;
+    }
+
+    if (runId && finishedRunIdsRef.current.has(runId) && activeRunIdRef.current !== runId) return;
+    if (runId) finishedRunIdsRef.current.add(runId);
+    if (finishingRunId) finishedRunIdsRef.current.add(finishingRunId);
+
     setPendingAssistant("");
     setPendingThinking("");
-    setToolEvents([]);
+    setPendingUserMessage(null);
+    activeRunIdRef.current = null;
+    activeRunSessionIdRef.current = null;
+    setActiveRunId(null);
+    setSendingPromptState(false);
+
+    if (sessionId && selectedSessionIdRef.current === sessionId) {
+      void loadSession(sessionId, { expectedRunId: finishingRunId, requireCurrent: true });
+    }
+    void refreshSessions();
+  }
+
+  async function handleSendPrompt(text: string) {
+    if (activeRunIdRef.current || sendingPromptRef.current) return;
+    setErrorLabel(null);
+    setSendingPromptState(true);
+    try {
+      const sessionId = await ensureSession();
+      setPendingUserMessage(text);
+      setPendingAssistant("");
+      setPendingThinking("");
+      setToolEvents([]);
+      activeRunIdRef.current = null;
+      const response = await promptSession(sessionId, text);
+      startLiveRun(response.run_id, text, sessionId);
+    } catch (error) {
+      setErrorLabel(error instanceof Error ? error.message : "Failed to send prompt");
+      setPendingUserMessage(null);
+      setActiveRunId(null);
+      activeRunIdRef.current = null;
+      activeRunSessionIdRef.current = null;
+    } finally {
+      setSendingPromptState(false);
+    }
   }
 
   async function handleNewChat() {
@@ -170,6 +252,7 @@ function App() {
     setPendingThinking("");
     setToolEvents([]);
     setPendingUserMessage(prompt);
+    setSendingPromptState(true);
 
     try {
       const created = await createSession(selectedSession?.cwd);
@@ -181,10 +264,15 @@ function App() {
       await refreshSessions(true);
 
       const response = await promptSession(created.session_id, prompt);
-      setActiveRunId(response.run_id);
+      startLiveRun(response.run_id, prompt, created.session_id);
     } catch (error) {
       setErrorLabel(error instanceof Error ? error.message : "Failed to delegate action to Hermes");
+      setPendingUserMessage(null);
       setActiveRunId(null);
+      activeRunIdRef.current = null;
+      activeRunSessionIdRef.current = null;
+    } finally {
+      setSendingPromptState(false);
     }
   }
 
@@ -234,29 +322,64 @@ function App() {
       }
 
       if (bridgeEvent.session_id && bridgeEvent.session_id === selectedSessionIdRef.current) {
-        if (bridgeEvent.type === "message.delta") {
+        const isCurrentRun = isCurrentLiveRun(bridgeEvent);
+        const runId = eventRunId(bridgeEvent);
+
+        if (bridgeEvent.type === "session.info") {
+          if (bridgeEvent.running && runId) {
+            startLiveRun(runId, null, bridgeEvent.session_id);
+          } else if (!bridgeEvent.running && (activeRunIdRef.current || sendingPromptRef.current)) {
+            finishLiveRun(activeRunIdRef.current ?? runId, bridgeEvent.session_id);
+          }
+          return;
+        }
+
+        if (
+          (bridgeEvent.type === "run.started" || bridgeEvent.type === "message.start") &&
+          isCurrentRun
+        ) {
+          startLiveRun(runId, bridgeEvent.prompt ?? bridgeEvent.text, bridgeEvent.session_id);
+        }
+
+        if (bridgeEvent.type === "message.delta" && isCurrentRun) {
           setPendingAssistant((current) => current + (bridgeEvent.text ?? ""));
         }
 
-        if (bridgeEvent.type === "thinking.delta") {
+        if (bridgeEvent.type === "thinking.delta" && isCurrentRun) {
           setPendingThinking((current) => current + (bridgeEvent.text ?? ""));
         }
 
-        if (bridgeEvent.type === "tool.started" || bridgeEvent.type === "tool.completed") {
+        if (
+          (bridgeEvent.type === "tool.started" ||
+            bridgeEvent.type === "tool.completed" ||
+            bridgeEvent.type === "tool.start" ||
+            bridgeEvent.type === "tool.complete" ||
+            bridgeEvent.type === "tool.progress") &&
+          isCurrentRun
+        ) {
+          const isStart =
+            bridgeEvent.type === "tool.started" ||
+            bridgeEvent.type === "tool.start" ||
+            bridgeEvent.type === "tool.progress";
+          const normalizedType = isStart ? "tool.started" : "tool.completed";
           setToolEvents((current) => [
             ...current,
             {
-              id: `${bridgeEvent.type}-${Date.now()}`,
-              type: bridgeEvent.type as "tool.started" | "tool.completed",
-              title: bridgeEvent.title,
-              text: bridgeEvent.text,
+              id: `${bridgeEvent.type}-${bridgeEvent.tool_id ?? Date.now()}`,
+              type: normalizedType as "tool.started" | "tool.completed",
+              title: bridgeEvent.title || bridgeEvent.name,
+              text: bridgeEvent.text || bridgeEvent.preview || bridgeEvent.summary || bridgeEvent.raw_result || bridgeEvent.context,
               timestamp: Date.now(),
-              success: bridgeEvent.type === "tool.completed",
+              success: !isStart,
             },
           ]);
         }
 
-        if (bridgeEvent.type === "approval.requested") {
+        if (bridgeEvent.type === "message.complete" && isCurrentRun) {
+          setPendingAssistant(bridgeEvent.text ?? "");
+        }
+
+        if (bridgeEvent.type === "approval.requested" && isCurrentRun) {
           setApproval({
             approvalId: bridgeEvent.approval_id ?? "",
             sessionId: bridgeEvent.session_id ?? "",
@@ -275,22 +398,16 @@ function App() {
         }
 
         if (bridgeEvent.type === "session.snapshot") {
-          setPendingAssistant("");
-          setPendingThinking("");
-          if (selectedSessionIdRef.current) void loadSession(selectedSessionIdRef.current);
-          void refreshSessions();
-          setActiveRunId(null);
+          finishLiveRun(runId, bridgeEvent.session_id);
         }
 
         if (
-          bridgeEvent.type === "run.finished" ||
-          bridgeEvent.type === "run.cancelled" ||
-          bridgeEvent.type === "run.failed"
+          (bridgeEvent.type === "run.finished" ||
+            bridgeEvent.type === "run.cancelled" ||
+            bridgeEvent.type === "run.failed") &&
+          isCurrentRun
         ) {
-          setPendingThinking("");
-          setPendingUserMessage(null);
-          void refreshSessions();
-          setActiveRunId(null);
+          finishLiveRun(runId, bridgeEvent.session_id);
         }
       }
     };
@@ -304,6 +421,27 @@ function App() {
       socket.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeRunId && !sendingPrompt) return;
+
+    const interval = window.setInterval(() => {
+      void (async () => {
+        try {
+          const health = await fetchHealth();
+          const activeRuns = Number(health.active_runs ?? 0);
+          const runId = activeRunIdRef.current;
+          if (runId && activeRuns === 0) {
+            finishLiveRun(runId, activeRunSessionIdRef.current ?? selectedSessionIdRef.current);
+          }
+        } catch {
+          // The WebSocket close handler already surfaces bridge connectivity.
+        }
+      })();
+    }, 2500);
+
+    return () => window.clearInterval(interval);
+  }, [activeRunId, sendingPrompt]);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
@@ -445,7 +583,11 @@ function App() {
               pendingUserMessage={pendingUserMessage}
               toolEvents={toolEvents}
             />
-            <Composer disabled={Boolean(activeRunId)} onSubmit={handleSendPrompt} />
+            <Composer
+              disabled={Boolean(activeRunId) || sendingPrompt}
+              isRunning={Boolean(activeRunId) || sendingPrompt}
+              onSubmit={handleSendPrompt}
+            />
           </div>
         ) : activeTab === "knowledge" ? (
           <div className="knowledge-pane">

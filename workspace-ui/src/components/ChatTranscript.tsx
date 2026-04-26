@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -230,8 +230,8 @@ function StreamingBubble({ text }: { text: string }) {
         <span>Hermes</span>
       </header>
       <div className="message__body">
-        <div className="streaming-cursor" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {text}
+        <div className="streaming-cursor">
+          <MarkdownContent content={text} />
         </div>
       </div>
     </article>
@@ -240,10 +240,25 @@ function StreamingBubble({ text }: { text: string }) {
 
 export function ChatTranscript({ messages, pendingAssistant, pendingThinking, pendingUserMessage, toolEvents }: ChatTranscriptProps) {
   const hasContent = messages.length > 0 || pendingAssistant || pendingThinking || pendingUserMessage;
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    messages.length,
+    pendingAssistant,
+    pendingThinking,
+    pendingUserMessage,
+    toolEvents.length,
+  ]);
 
   if (!hasContent) {
     return (
-      <div className="transcript transcript--empty">
+      <div className="transcript transcript--empty" ref={transcriptRef}>
         <div className="empty-state">
           <div className="empty-state__icon">◆</div>
           <h2 className="empty-state__title">What can I help with?</h2>
@@ -310,18 +325,6 @@ export function ChatTranscript({ messages, pendingAssistant, pendingThinking, pe
     elements.push(<ToolChipGroup key={`tools-${keyCounter++}`} tools={pendingTools} />);
   }
 
-  if (pendingAssistant || pendingThinking || toolEvents.length > 0) {
-    if (pendingThinking) {
-      elements.push(<ThinkingBubble key="thinking" text={pendingThinking} />);
-    }
-    if (toolEvents.length > 0) {
-      elements.push(<ToolChipGroup key={`tools-live-${keyCounter++}`} tools={toolEvents} />);
-    }
-    if (pendingAssistant) {
-      elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
-    }
-  }
-
   if (pendingUserMessage) {
     elements.push(
       <article className="message message--user message--pending" key="pending-user">
@@ -336,9 +339,22 @@ export function ChatTranscript({ messages, pendingAssistant, pendingThinking, pe
     );
   }
 
+  if (pendingAssistant || pendingThinking || toolEvents.length > 0) {
+    if (pendingThinking) {
+      elements.push(<ThinkingBubble key="thinking" text={pendingThinking} />);
+    }
+    if (toolEvents.length > 0) {
+      elements.push(<ToolChipGroup key={`tools-live-${keyCounter++}`} tools={toolEvents} />);
+    }
+    if (pendingAssistant) {
+      elements.push(<StreamingBubble key="streaming" text={pendingAssistant} />);
+    }
+  }
+
   return (
-    <div className="transcript">
+    <div className="transcript" ref={transcriptRef}>
       {elements}
+      <div aria-hidden="true" ref={bottomRef} />
     </div>
   );
 }
